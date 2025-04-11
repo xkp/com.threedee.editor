@@ -37,12 +37,8 @@ public class ModuleExporter : EditorWindow
 	// Allowed types for properties.
 	private readonly string[] allowedTypes = new string[] { "string", "int", "float", "bool", "object" };
 
-	//A dictionary to track property foldout states (keyed by property key).
+	// NEW: A dictionary to track property foldout states (keyed by property key).
 	private Dictionary<string, bool> propertyFoldouts = new Dictionary<string, bool>();
-
-	// Where the module's assets will be stored
-	private readonly string projectAssetsPath = "Assets/BigGame/ModuleAssets";
-
 
 	[System.Serializable]
 	public class Item
@@ -370,7 +366,7 @@ public class ModuleExporter : EditorWindow
 				group.name = EditorGUILayout.TextField("Name", group.name);
 
 				group.icon = IconPickerUI.DrawIconField(group.icon, CopyCustomIcon); //'EditorGUILayout.TextField("Icon", group.icon);
-				
+
 				group.category = EditorGUILayout.TextField("Category", group.category);
 
 				if (string.IsNullOrEmpty(group.name))
@@ -644,27 +640,54 @@ public class ModuleExporter : EditorWindow
 		string moduleFolder = GetModuleFolder();
 		Directory.CreateDirectory(moduleFolder);
 
-		// Build your ExportedModule object, create the JSON file, etc.
 		ExportedModule mod = new ExportedModule();
-		// ... populate mod ...
+		mod.id = (int)ComputeFNV1aHash(moduleName);
+		mod.name = moduleName;
+		mod.type = moduleType;
+		mod.controller = controllerClass;
+		mod.packages = new List<string>(unityPackageNames);
 
-		// Save the JSON file
-		string jsonFilePath = loadedModuleFilePath;
-		if (string.IsNullOrEmpty(jsonFilePath))
+		mod.properties = new Dictionary<string, ExportedProperty>();
+		foreach (var prop in globalProperties)
 		{
-			jsonFilePath = loadedModuleFilePath = Path.Combine(Application.dataPath, "module.bgm");
+			mod.properties[prop.name] = CopyProperty(prop);
 		}
-		string json = JsonUtility.ToJson(mod, true);
-		File.WriteAllText(jsonFilePath, json);
-		Debug.Log("Exported module JSON to " + jsonFilePath);
-		File.Copy(loadedModuleFilePath, Path.Combine(moduleFolder, Path.GetFileName(loadedModuleFilePath)), true);
 
-		// Copy the assets from the project asset folder into the module folder.
-		// For example, copy projectAssetsPath into a subfolder called "ModuleAssets" in moduleFolder.
-		string tempAssetsDestination = Path.Combine(moduleFolder, "ModuleAssets");
-		DirectoryCopy(projectAssetsPath, tempAssetsDestination, true);
+		mod.itemGroups = new List<ExportedGroup>();
+		foreach (var group in itemGroups)
+		{
+			ExportedGroup eg = new ExportedGroup();
+			eg.name = group.name;
+			eg.icon = group.icon;
+			eg.category = group.category;
+			eg.items = new List<ExportedItem>();
 
-		// For Game modules, if you still need to copy the project template, leave that here.
+			foreach (var item in group.items)
+			{
+				ExportedItem ei = new ExportedItem();
+				ei.id = item.id;
+				ei.name = item.name;
+				ei.description = item.description;
+				ei.unique = item.unique;
+				ei.notDraggable = item.notDraggable;
+				ei.template = item.template;
+				ei.prefab = item.prefabPath;
+				ei.icon = item.icon;
+				ei.icon3d = item.modelPath;
+				ei.exportTranslation = item.exportTranslation;
+				ei.exportRotation = item.exportRotation;
+				ei.exportScale = item.exportScale;
+
+				ei.properties = new List<ExportedProperty>();
+				foreach (var kvp in item.properties)
+				{
+					ei.properties.Add(CopyProperty(kvp.Value));
+				}
+				eg.items.Add(ei);
+			}
+			mod.itemGroups.Add(eg);
+		}
+
 		if (moduleType == "Game")
 		{
 			string projectRoot = Directory.GetParent(Application.dataPath).FullName;
@@ -688,7 +711,18 @@ public class ModuleExporter : EditorWindow
 			Debug.Log("Copied template files to " + destTemplateFolder);
 		}
 
-		// Create the zip file from moduleFolder
+		string jsonFilePath = loadedModuleFilePath;
+		if (string.IsNullOrEmpty(jsonFilePath))
+		{
+			jsonFilePath = loadedModuleFilePath = Path.Combine(Application.dataPath, "module.bgm");
+		}
+
+		string json = JsonUtility.ToJson(mod, true);
+		File.WriteAllText(jsonFilePath, json);
+		Debug.Log("Exported module JSON to " + jsonFilePath);
+
+		File.Copy(loadedModuleFilePath, Path.Combine(moduleFolder, Path.GetFileName(loadedModuleFilePath)), true);
+
 		string zipFilePath = Path.Combine(Path.GetDirectoryName(moduleFolder), moduleName + ".3dbg");
 		if (File.Exists(zipFilePath))
 		{
@@ -696,6 +730,7 @@ public class ModuleExporter : EditorWindow
 		}
 		System.IO.Compression.ZipFile.CreateFromDirectory(moduleFolder, zipFilePath);
 		Debug.Log("Created zip file: " + zipFilePath);
+
 		EditorUtility.RevealInFinder(zipFilePath);
 	}
 
@@ -841,12 +876,12 @@ public class ModuleExporter : EditorWindow
 
 	private void GenerateModel(Item item)
 	{
-		// Use the project asset folder rather than the export folder.
-		string modelsDirectory = Path.Combine(projectAssetsPath, "Models");
-		if (!Directory.Exists(modelsDirectory))
-			Directory.CreateDirectory(modelsDirectory);
-
-		string modelPath = Path.Combine(modelsDirectory, item.name + ".obj");
+		string moduleFolder = GetModuleFolder();
+		string assetsDirectory = Path.Combine(moduleFolder, "Assets");
+		Directory.CreateDirectory(assetsDirectory);
+		string modelDirectory = Path.Combine(assetsDirectory, "Models");
+		Directory.CreateDirectory(modelDirectory);
+		string modelPath = Path.Combine(modelDirectory, item.name + ".obj");
 
 		if (item.prefab != null)
 		{
@@ -857,8 +892,7 @@ public class ModuleExporter : EditorWindow
 				return;
 			}
 			SaveMeshAsOBJ(mesh, modelPath, item.exportTranslation, item.exportRotation, item.exportScale);
-			// Store the relative path relative to the projectAssetsPath.
-			item.modelPath = Path.Combine("Models", item.name + ".obj");
+			item.modelPath = item.name + ".obj";
 		}
 	}
 
@@ -892,11 +926,11 @@ public class ModuleExporter : EditorWindow
 	{
 		if (item.prefab == null)
 			return;
-
-		string thumbDirectory = Path.Combine(projectAssetsPath, "Thumbnails");
-		if (!Directory.Exists(thumbDirectory))
-			Directory.CreateDirectory(thumbDirectory);
-
+		string moduleFolder = GetModuleFolder();
+		string assetsDirectory = Path.Combine(moduleFolder, "Assets");
+		Directory.CreateDirectory(assetsDirectory);
+		string thumbDirectory = Path.Combine(assetsDirectory, "Thumbnails");
+		Directory.CreateDirectory(thumbDirectory);
 		Texture2D preview = AssetPreview.GetAssetPreview(item.prefab);
 		if (preview == null)
 		{
@@ -909,8 +943,8 @@ public class ModuleExporter : EditorWindow
 			{
 				string thumbPath = Path.Combine(thumbDirectory, item.name + ".png");
 				File.WriteAllBytes(thumbPath, pngData);
-				// Store the relative path relative to projectAssetsPath.
-				item.icon = Path.Combine("Thumbnails", item.name + ".png");
+				string relativeThumbPath = Path.Combine("Assets", "Thumbnails", item.name + ".png");
+				item.icon = relativeThumbPath;
 			}
 		}
 	}
