@@ -1,6 +1,6 @@
 {
     "name": "com.threedee.editor",
-    "version": "0.5.0",
+    "version": "0.5.3",
     "displayName": "Big Game Editor",
     "description": "An asset exporter to the BigGame platform",
     "unity": "2020.3",
