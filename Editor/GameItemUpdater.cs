@@ -9,7 +9,7 @@ public class GameItemUpdater : EditorWindow
 	[MenuItem("Tools/Game Item Updater")]
 	public static void ShowWindow()
 	{
-		GetWindow<GameItemImporter>("Game Item Updater");
+		GetWindow<GameItemUpdater>("Game Item Updater");
 	}
 
 	void OnGUI()
