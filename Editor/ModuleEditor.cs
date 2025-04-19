@@ -21,9 +21,6 @@ public class ModuleExporter : EditorWindow
 	// The exportPath is chosen by the user.
 	private string exportPath = "";
 
-	// Global properties stored as a list.
-	private List<Property> globalProperties = new List<Property>();
-
 	// Lists for Unity package files (copied into the module folder)
 	private List<string> unityPackages = new List<string>();       // full paths to copied files
 	private List<string> unityPackageNames = new List<string>();     // file names only
@@ -121,24 +118,6 @@ public class ModuleExporter : EditorWindow
 		moduleName = mod.name;
 		moduleType = mod.type;
 		controllerClass = mod.controller;
-
-		// Populate global properties.
-		globalProperties.Clear();
-		if (mod.properties != null)
-		{
-			foreach (var kvp in mod.properties)
-			{
-				var ep = kvp.Value;
-				globalProperties.Add(new Property
-				{
-					name = ep.name,
-					type = ep.type,
-					value = ep.value,
-					editor = ep.editor,
-					component = ep.component
-				});
-			}
-		}
 
 		// Populate Unity package names.
 		unityPackageNames.Clear();
@@ -272,15 +251,8 @@ public class ModuleExporter : EditorWindow
 		EditorGUILayout.BeginHorizontal();
 
 		EditorGUILayout.BeginVertical();
-		if (GUILayout.Button("Edit Global Properties"))
+		if (GUILayout.Button("Select Assets to Export"))
 		{
-			// Reuse the custom popup for global properties.
-			CustomPropertiesPopup.ShowPopup(globalProperties);
-		}
-		for (int i = 0; i < globalProperties.Count; i++)
-		{
-			Property prop = globalProperties[i];
-			GUILayout.Label($"{prop.name} ({prop.type}): {prop.value}");
 		}
 		EditorGUILayout.EndVertical();
 
@@ -365,7 +337,9 @@ public class ModuleExporter : EditorWindow
 				EditorGUI.indentLevel++;
 				group.name = EditorGUILayout.TextField("Name", group.name);
 
-				group.icon = IconPickerUI.DrawIconField(group.icon, CopyCustomIcon); //'EditorGUILayout.TextField("Icon", group.icon);
+				group.icon = IconPickerUI.DrawIconField(group.icon, (path) => {
+					return CopyCustomIcon(path);
+				}); 
 
 				group.category = EditorGUILayout.TextField("Category", group.category);
 
@@ -399,23 +373,30 @@ public class ModuleExporter : EditorWindow
 						EditorGUILayout.BeginHorizontal();
 					Item item = group.items[j];
 					EditorGUILayout.BeginVertical(GUILayout.Width(70));
+					
 					Texture2D thumbnail = null;
-					if (item.prefab != null)
+					if (!string.IsNullOrEmpty(item.icon))
+					{
+						string fullIconPath = Path.Combine(GetAssetModuleFolder(), item.icon);
+						thumbnail = LoadTextureFromFile(fullIconPath);
+
+						if (thumbnail == null)
+						{
+							fullIconPath = Path.Combine(GetModuleFolder(), item.icon);
+							thumbnail = LoadTextureFromFile(fullIconPath);
+						}
+					}
+
+					if (thumbnail == null && item.prefab != null)
 					{
 						thumbnail = AssetPreview.GetAssetPreview(item.prefab);
 					}
+
 					if (thumbnail == null)
 					{
-						if (!string.IsNullOrEmpty(item.icon))
-						{
-							string fullIconPath = Path.Combine(GetModuleFolder(), item.icon);
-							thumbnail = LoadTextureFromFile(fullIconPath);
-						}
-						if (thumbnail == null)
-						{
-							thumbnail = EditorGUIUtility.IconContent("DefaultAsset Icon").image as Texture2D;
-						}
+						thumbnail = EditorGUIUtility.IconContent("DefaultAsset Icon").image as Texture2D;
 					}
+
 					if (GUILayout.Button(thumbnail ?? Texture2D.blackTexture, GUILayout.Width(64), GUILayout.Height(64)))
 					{
 						selectedItem = item;
@@ -504,19 +485,17 @@ public class ModuleExporter : EditorWindow
 
 			GUILayout.Label("ASSETS", EditorStyles.boldLabel);
 
-			selectedItem.prefabPath = EditorGUILayout.TextField("Prefab Path", selectedItem.prefabPath);
-			if (!string.IsNullOrEmpty(selectedItem.modelPath))
-			{
-				EditorGUILayout.LabelField("Model Path:", selectedItem.modelPath);
-			}
+			selectedItem.prefabPath = EditorGUILayout.TextField("Prefab:", Path.GetFileNameWithoutExtension(selectedItem.prefabPath));
+			
+			selectedItem.icon = IconPickerUI.DrawIconField(selectedItem.icon, CopyCustomIcon); //'EditorGUILayout.TextField("Icon", group.icon);
 
-			if (GUILayout.Button("Generate Assets"))
-			{
-				GenerateModel(selectedItem);
-				GenerateThumbnail(selectedItem);
-			}
-			EditorGUILayout.Space();
-
+			/*			if (GUILayout.Button("Generate Assets"))
+						{
+							GenerateModel(selectedItem);
+							GenerateThumbnail(selectedItem);
+						}
+						EditorGUILayout.Space();
+			*/
 			// --- Unified Properties List (Collapsible) ---
 			GUILayout.Label("PROPERTIES", EditorStyles.boldLabel);
 
@@ -636,22 +615,20 @@ public class ModuleExporter : EditorWindow
 
 	private void ExportModule()
 	{
-		AskForExportFolder();
+		//AskForExportFolder();
 		string moduleFolder = GetModuleFolder();
 		Directory.CreateDirectory(moduleFolder);
 
+		//Copy custom assets into 
+		DirectoryCopy(GetAssetModuleFolder(), moduleFolder, true);
+
+		//export
 		ExportedModule mod = new ExportedModule();
 		mod.id = (int)ComputeFNV1aHash(moduleName);
 		mod.name = moduleName;
 		mod.type = moduleType;
 		mod.controller = controllerClass;
 		mod.packages = new List<string>(unityPackageNames);
-
-		mod.properties = new Dictionary<string, ExportedProperty>();
-		foreach (var prop in globalProperties)
-		{
-			mod.properties[prop.name] = CopyProperty(prop);
-		}
 
 		mod.itemGroups = new List<ExportedGroup>();
 		foreach (var group in itemGroups)
@@ -664,6 +641,8 @@ public class ModuleExporter : EditorWindow
 
 			foreach (var item in group.items)
 			{
+				EnsureAssets(item);
+
 				ExportedItem ei = new ExportedItem();
 				ei.id = item.id;
 				ei.name = item.name;
@@ -734,6 +713,25 @@ public class ModuleExporter : EditorWindow
 		EditorUtility.RevealInFinder(zipFilePath);
 	}
 
+	private void EnsureAssets(Item item)
+	{
+		if (string.IsNullOrEmpty(item.prefabPath))
+			return; //items not representing a prefab can not get its assets calculated
+
+		var modulePath = GetModuleFolder();
+		var thumbnailPath = Path.Combine(modulePath, "Assets/Thumbnails", item.icon);
+		if (!File.Exists(thumbnailPath))
+		{
+			GenerateThumbnail(item);
+		}
+
+		var modelPath = Path.Combine(modulePath, "Assets/Models", item.modelPath);
+		if (!File.Exists(modelPath))
+		{
+			GenerateModel(item);
+		}
+	}
+
 	private static void DirectoryCopy(string sourceDirName, string destDirName, bool copySubDirs)
 	{
 		DirectoryInfo dir = new DirectoryInfo(sourceDirName);
@@ -779,7 +777,6 @@ public class ModuleExporter : EditorWindow
 		public int id;
 		public string name;
 		public string type;
-		public Dictionary<string, ExportedProperty> properties;
 		public string controller;
 		public List<string> packages;
 		public List<ExportedGroup> itemGroups;
@@ -936,22 +933,11 @@ public class ModuleExporter : EditorWindow
 		{
 			preview = EditorGUIUtility.IconContent("DefaultAsset Icon").image as Texture2D;
 		}
-		if (preview != null)
-		{
-			byte[] pngData = preview.EncodeToPNG();
-			if (pngData != null)
-			{
-				string thumbPath = Path.Combine(thumbDirectory, item.name + ".png");
-				File.WriteAllBytes(thumbPath, pngData);
-				string relativeThumbPath = Path.Combine("Assets", "Thumbnails", item.name + ".png");
-				item.icon = relativeThumbPath;
-			}
-		}
 	}
 
 	private string CopyCustomIcon(string imagePath)
 	{
-		string moduleFolder = GetModuleFolder();
+		string moduleFolder = GetAssetModuleFolder();
 		string assetsDirectory = Path.Combine(moduleFolder, "Assets");
 		Directory.CreateDirectory(assetsDirectory);
 		string thumbDirectory = Path.Combine(assetsDirectory, "Thumbnails");
@@ -960,7 +946,12 @@ public class ModuleExporter : EditorWindow
 		var filename = Path.GetFileName(imagePath);
 		File.Copy(imagePath, Path.Combine(thumbDirectory, filename));
 
-		return Path.Combine("Assest", "Thumbnails", filename);
+		return Path.Combine("Assets", "Thumbnails", filename);
+	}
+
+	private string GetAssetModuleFolder()
+	{
+		return Path.Combine(Application.dataPath, "Big Game/Module");
 	}
 
 	private Mesh GetLowestLODMesh(GameObject prefab)
