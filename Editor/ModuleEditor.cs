@@ -5,7 +5,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Text;
 using System.Reflection;
-using Codice.Utils;
+using System.Linq;
 
 public class ModuleExporter : EditorWindow
 {
@@ -32,7 +32,7 @@ public class ModuleExporter : EditorWindow
 	private Dictionary<int, bool> compFoldouts = new Dictionary<int, bool>();
 
 	// Allowed types for properties.
-	private readonly string[] allowedTypes = new string[] { "string", "int", "float", "bool", "object" };
+	private readonly string[] allowedTypes = new string[] { "string", "int", "float", "bool", "enum", "gameitem", "asset", "object" };
 
 	// NEW: A dictionary to track property foldout states (keyed by property key).
 	private Dictionary<string, bool> propertyFoldouts = new Dictionary<string, bool>();
@@ -53,7 +53,7 @@ public class ModuleExporter : EditorWindow
 		// All properties are now stored in a single dictionary.
 		// For component properties, the key is typically "ComponentName.FieldName" and its Property.component is set.
 		// For manual properties, we generate a unique key.
-		public Dictionary<string, Property> properties = new Dictionary<string, Property>();
+		public List<Property> properties = new List<Property>();
 
 		public Vector3 exportTranslation = Vector3.zero;
 		public Vector3 exportRotation = Vector3.zero;
@@ -65,9 +65,7 @@ public class ModuleExporter : EditorWindow
 	{
 		public string name;
 		public string type;
-		public object value;
-		public string editor;
-		public string component;
+		public string data;
 	}
 
 	[System.Serializable]
@@ -160,19 +158,17 @@ public class ModuleExporter : EditorWindow
 					item.exportScale = exportedItem.exportScale;
 
 					// Reconstruct properties.
-					item.properties = new Dictionary<string, Property>();
+					item.properties = new List<Property>();
 					if (exportedItem.properties != null)
 					{
 						foreach (var ep in exportedItem.properties)
 						{
 							// When loading, assume these are manual properties.
-							item.properties.Add(ep.name, new Property
+							item.properties.Add(new Property
 							{
 								name = ep.name,
 								type = ep.type,
-								value = ep.value,
-								editor = ep.editor,
-								component = ep.component
+								data = ep.data
 							});
 						}
 					}
@@ -505,7 +501,7 @@ public class ModuleExporter : EditorWindow
 			{
 				foreach (var kvp in selectedItem.properties)
 				{
-					unifiedProps.Add((kvp.Value, kvp.Key));
+					unifiedProps.Add((kvp, kvp.name));
 				}
 			}
 
@@ -520,15 +516,13 @@ public class ModuleExporter : EditorWindow
 
 				// Build a header for the foldout.
 				string header = $"{entry.prop.name} ({entry.prop.type})";
-				if (!string.IsNullOrEmpty(entry.prop.component))
-				{
-					header += $" - {entry.prop.component}";
-				}
 				EditorGUILayout.BeginHorizontal();
 				propertyFoldouts[entry.key] = EditorGUILayout.Foldout(propertyFoldouts[entry.key], header, true);
 				if (GUILayout.Button("Remove", GUILayout.Width(70)))
 				{
-					selectedItem.properties.Remove(entry.key);
+					var prop = selectedItem.properties.FirstOrDefault(p => p.name == entry.key);
+					if (prop != null)
+						selectedItem.properties.Remove(prop);
 				}
 				EditorGUILayout.EndHorizontal();
 
@@ -546,11 +540,26 @@ public class ModuleExporter : EditorWindow
 
 					typeIndex = EditorGUILayout.Popup("Type", typeIndex, allowedTypes);
 					entry.prop.type = allowedTypes[typeIndex];
-					entry.prop.value = EditorGUILayout.TextField("Value", entry.prop.value != null ? entry.prop.value.ToString() : "");
+					//entry.prop.value = EditorGUILayout.TextField("Value", entry.prop.value != null ? entry.prop.value.ToString() : "");
 					if (entry.prop.type == "object")
 					{
-						entry.prop.editor = EditorGUILayout.TextField("Editor", entry.prop.editor);
+						entry.prop.data = EditorGUILayout.TextField("Editor", entry.prop.data);
 					}
+					else if (entry.prop.type == "gameitem")
+					{
+						if (GUILayout.Button("Edit..."))
+						{
+							entry.prop.data = GameItemPropertyEditor.OpenWindow(entry.prop.data);
+						}
+					}
+					else if (entry.prop.type == "enum")
+					{
+						if (GUILayout.Button("Edit..."))
+						{
+							entry.prop.data = EnumPropertyEditor.OpenWindow(entry.prop.data);
+						}
+					}
+
 					EditorGUILayout.EndVertical();
 				}
 			}
@@ -567,11 +576,9 @@ public class ModuleExporter : EditorWindow
 				{
 					name = "NewProperty",
 					type = "string",
-					value = "",
-					editor = "",
-					component = ""
+					data = "",
 				};
-				selectedItem.properties.Add(key, newProp);
+				selectedItem.properties.Add(newProp);
 			}
 
 			if (GUILayout.Button("Add Component Property"))
@@ -660,7 +667,7 @@ public class ModuleExporter : EditorWindow
 				ei.properties = new List<ExportedProperty>();
 				foreach (var kvp in item.properties)
 				{
-					ei.properties.Add(CopyProperty(kvp.Value));
+					ei.properties.Add(CopyProperty(kvp));
 				}
 				eg.items.Add(ei);
 			}
@@ -765,9 +772,7 @@ public class ModuleExporter : EditorWindow
 		ExportedProperty ep = new ExportedProperty();
 		ep.name = prop.name;
 		ep.type = prop.type;
-		ep.value = prop.value != null ? prop.value.ToString() : "";
-		ep.editor = prop.editor;
-		ep.component = prop.component;
+		ep.data = prop.data;
 		return ep;
 	}
 
@@ -815,9 +820,7 @@ public class ModuleExporter : EditorWindow
 	{
 		public string name;
 		public string type;
-		public object value;
-		public string editor;
-		public string component;
+		public string data;
 	}
 
 	private void CreateCustomItem(ItemGroup group)
@@ -829,7 +832,7 @@ public class ModuleExporter : EditorWindow
 		newItem.prefabPath = "";
 		newItem.icon = "";
 		newItem.modelPath = "";
-		newItem.properties = new Dictionary<string, Property>();
+		newItem.properties = new List<Property>();
 		newItem.exportTranslation = Vector3.zero;
 		newItem.exportRotation = Vector3.zero;
 		newItem.exportScale = Vector3.one;
@@ -852,7 +855,7 @@ public class ModuleExporter : EditorWindow
 					name = prefab.name,
 					prefab = prefab,
 					prefabPath = assetPath,
-					properties = new Dictionary<string, Property>(),
+					properties = new List<Property>(),
 					exportTranslation = Vector3.zero,
 					exportRotation = Vector3.zero,
 					exportScale = Vector3.one
@@ -1052,7 +1055,7 @@ public class CustomPropertiesPopup : EditorWindow
 				prop.type = allowedTypes[typeIndex];
 				x += typeFieldW;
 
-				Rect r4 = new Rect(x, y, valueLabelW, EditorGUIUtility.singleLineHeight);
+/*				Rect r4 = new Rect(x, y, valueLabelW, EditorGUIUtility.singleLineHeight);
 				EditorGUI.LabelField(r4, "Value");
 				x += valueLabelW;
 				Rect r5 = new Rect(x, y, valueFieldW, EditorGUIUtility.singleLineHeight);
@@ -1063,21 +1066,27 @@ public class CustomPropertiesPopup : EditorWindow
 					prop.value = newVal;
 				}
 				x += valueFieldW;
-
+*/
 				if (prop.type == "object")
 				{
 					Rect r6 = new Rect(x, y, editorLabelW, EditorGUIUtility.singleLineHeight);
 					EditorGUI.LabelField(r6, "Editor");
 					x += editorLabelW;
 					Rect r7 = new Rect(x, y, editorFieldW, EditorGUIUtility.singleLineHeight);
-					prop.editor = EditorGUI.TextField(r7, prop.editor);
+					prop.data = EditorGUI.TextField(r7, prop.data);
+				}
+				else if (prop.type == "gameitem")
+				{
+					if (GUILayout.Button("Edit..."))
+					{
+					}
 				}
 			}
 		};
 
 		reorderableList.onAddCallback = (ReorderableList list) =>
 		{
-			properties.Add(new ModuleExporter.Property { name = "NewProperty", type = "string", value = "", editor = "", component = "" });
+			properties.Add(new ModuleExporter.Property { name = "NewProperty", type = "string", data = "" });
 		};
 
 		reorderableList.onRemoveCallback = (ReorderableList list) =>
@@ -1136,7 +1145,7 @@ public class ComponentPropertiesPopup : EditorWindow
 				if (!IsSimpleType(field.FieldType))
 					continue;
 				string key = comp.GetType().Name + "." + field.Name;
-				if (selectedItem.properties == null || !selectedItem.properties.ContainsKey(key))
+				if (selectedItem.properties == null || !selectedItem.properties.Any(p => p.name == key))
 				{
 					availableFields.Add((comp, field, key));
 				}
@@ -1180,15 +1189,15 @@ public class ComponentPropertiesPopup : EditorWindow
 				{
 					object defaultVal = entry.field.GetValue(entry.comp);
 					if (selectedItem.properties == null)
-						selectedItem.properties = new Dictionary<string, ModuleExporter.Property>();
-					selectedItem.properties[entry.key] = new ModuleExporter.Property
+						selectedItem.properties = new List<ModuleExporter.Property>();
+					
+					selectedItem.properties.Add( new ModuleExporter.Property
 					{
 						name = entry.field.Name,
 						type = ModuleExporter.TranslateType(entry.field.FieldType),
-						value = defaultVal,
-						editor = "",
-						component = entry.comp.GetType().Name
-					};
+						data = entry.comp.GetType().Name,
+					});
+					
 					PopulateAvailableFields();
 					Close();
 					break;
