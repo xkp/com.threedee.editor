@@ -2,11 +2,13 @@
 using UnityEngine;
 using System.Collections.Generic;
 using Unity.Plastic.Newtonsoft.Json.Linq;
+using System;
 
 public class EnumPropertyEditor : EditorWindow
 {
 	private string inputJson = "[]";
 	private List<JsonObject> jsonObjects = new List<JsonObject>();
+	private Func<string, string> iconCallback;
 
 	private class JsonObject
 	{
@@ -17,12 +19,13 @@ public class EnumPropertyEditor : EditorWindow
 	private static string resultJson = null; // Static variable to hold the result
 
 	// This method opens the editor window with the provided JSON string and waits for a result
-	public static string OpenWindow(string jsonString)
+	public static string OpenWindow(string jsonString, Func<string, string> iconCallback)
 	{
 		EnumPropertyEditor window = GetWindow<EnumPropertyEditor>("Enum");
 		if (!string.IsNullOrEmpty(jsonString))
 			window.inputJson = jsonString; // Set the passed JSON string as input
 
+		window.iconCallback = iconCallback;
 		window.ParseInput();
 		window.ShowModal(); // Show the window as a modal, blocking until the result is ready
 		return resultJson; // Return the modified JSON after the user clicks "Accept Values"
@@ -57,14 +60,8 @@ public class EnumPropertyEditor : EditorWindow
 			JsonObject obj = jsonObjects[i];
 			GUILayout.BeginHorizontal();
 
-			EditorGUILayout.LabelField("Name", GUILayout.Width(50)); // Label with fixed width
-			obj.name = EditorGUILayout.TextField(obj.name, GUILayout.Width(150)); // TextField next to label
+			obj.name = EditorGUILayout.TextField("Name", obj.name); 
 
-			// Label and field for Icon, adjusting the layout
-			EditorGUILayout.LabelField("Icon", GUILayout.Width(50)); // Label with fixed width
-			obj.icon = EditorGUILayout.TextField(obj.icon, GUILayout.Width(150)); // TextField next to label
-
-			// Remove button
 			if (GUILayout.Button("Remove", GUILayout.Width(70)))
 			{
 				jsonObjects.RemoveAt(i);
@@ -72,12 +69,16 @@ public class EnumPropertyEditor : EditorWindow
 			}
 
 			GUILayout.EndHorizontal();
+
+			obj.icon = IconPickerUI.DrawIconField(obj.icon, (path) => {
+				return iconCallback(path);
+			});
 		}
 
 		GUILayout.Space(10);
 
 		// Button to add a new object to the array
-		if (GUILayout.Button("Add Object"))
+		if (GUILayout.Button("Add Enum Item"))
 		{
 			jsonObjects.Add(new JsonObject { name = "", icon = "" });
 		}

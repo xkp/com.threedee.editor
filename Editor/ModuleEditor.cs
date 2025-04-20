@@ -556,7 +556,7 @@ public class ModuleExporter : EditorWindow
 					{
 						if (GUILayout.Button("Edit..."))
 						{
-							entry.prop.data = EnumPropertyEditor.OpenWindow(entry.prop.data);
+							entry.prop.data = EnumPropertyEditor.OpenWindow(entry.prop.data, CopyCustomIcon);
 						}
 					}
 
