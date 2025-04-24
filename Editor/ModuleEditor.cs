@@ -40,7 +40,7 @@ public class ModuleExporter : EditorWindow
 	[System.Serializable]
 	public class Item
 	{
-		public int id;
+		public string id;
 		public string name;
 		public string description;
 		public bool unique = false;
@@ -631,7 +631,7 @@ public class ModuleExporter : EditorWindow
 
 		//export
 		ExportedModule mod = new ExportedModule();
-		mod.id = (int)ComputeFNV1aHash(moduleName);
+		mod.id = System.Guid.NewGuid().ToString();
 		mod.name = moduleName;
 		mod.type = moduleType;
 		mod.controller = controllerClass;
@@ -779,7 +779,7 @@ public class ModuleExporter : EditorWindow
 	[System.Serializable]
 	public class ExportedModule
 	{
-		public int id;
+		public string id;
 		public string name;
 		public string type;
 		public string controller;
@@ -799,7 +799,7 @@ public class ModuleExporter : EditorWindow
 	[System.Serializable]
 	public class ExportedItem
 	{
-		public int id;
+		public string id;
 		public string name;
 		public string description;
 		public string category;
@@ -826,7 +826,7 @@ public class ModuleExporter : EditorWindow
 	private void CreateCustomItem(ItemGroup group)
 	{
 		Item newItem = new Item();
-		newItem.id = Random.Range(1, 1000);
+		newItem.id = System.Guid.NewGuid().ToString();
 		newItem.name = "Custom Item";
 		newItem.prefab = null;
 		newItem.prefabPath = "";
@@ -851,7 +851,7 @@ public class ModuleExporter : EditorWindow
 			{
 				group.items.Add(new Item
 				{
-					id = Random.Range(1, 1000),
+					id = System.Guid.NewGuid().ToString(),
 					name = prefab.name,
 					prefab = prefab,
 					prefabPath = assetPath,
