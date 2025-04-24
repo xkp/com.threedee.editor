@@ -959,7 +959,7 @@ public class ModuleExporter : EditorWindow
 		Directory.CreateDirectory(thumbDirectory);
 
 		var filename = Path.GetFileName(imagePath);
-		File.Copy(imagePath, Path.Combine(thumbDirectory, filename));
+		File.Copy(imagePath, Path.Combine(thumbDirectory, filename), true);
 
 		return Path.Combine("Assets", "Thumbnails", filename);
 	}
