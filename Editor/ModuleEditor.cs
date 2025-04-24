@@ -936,6 +936,18 @@ public class ModuleExporter : EditorWindow
 		{
 			preview = EditorGUIUtility.IconContent("DefaultAsset Icon").image as Texture2D;
 		}
+
+		if (preview != null)
+		{
+			byte[] pngData = preview.EncodeToPNG();
+			if (pngData != null)
+			{
+				string thumbPath = Path.Combine(thumbDirectory, item.name + ".png");
+				File.WriteAllBytes(thumbPath, pngData);
+				string relativeThumbPath = Path.Combine("Assets", "Thumbnails", item.name + ".png");
+				item.icon = relativeThumbPath;
+			}
+		}
 	}
 
 	private string CopyCustomIcon(string imagePath)
