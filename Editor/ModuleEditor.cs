@@ -732,8 +732,8 @@ public class ModuleExporter : EditorWindow
 			GenerateThumbnail(item);
 		}
 
-		var modelPath = Path.Combine(modulePath, "Assets/Models", item.modelPath);
-		if (!File.Exists(modelPath))
+		var hasPath = string.IsNullOrEmpty(item.modelPath);
+		if (!hasPath || !File.Exists(Path.Combine(modulePath, "Assets/Models", item.modelPath)))
 		{
 			GenerateModel(item);
 		}
