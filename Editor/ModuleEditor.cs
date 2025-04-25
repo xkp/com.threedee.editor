@@ -335,7 +335,7 @@ public class ModuleExporter : EditorWindow
 
 				group.icon = IconPickerUI.DrawIconField(group.icon, (path) => {
 					return CopyCustomIcon(path);
-				}); 
+				});
 
 				group.category = EditorGUILayout.TextField("Category", group.category);
 
@@ -369,7 +369,7 @@ public class ModuleExporter : EditorWindow
 						EditorGUILayout.BeginHorizontal();
 					Item item = group.items[j];
 					EditorGUILayout.BeginVertical(GUILayout.Width(70));
-					
+
 					Texture2D thumbnail = null;
 					if (!string.IsNullOrEmpty(item.icon))
 					{
@@ -482,7 +482,7 @@ public class ModuleExporter : EditorWindow
 			GUILayout.Label("ASSETS", EditorStyles.boldLabel);
 
 			selectedItem.prefabPath = EditorGUILayout.TextField("Prefab:", Path.GetFileNameWithoutExtension(selectedItem.prefabPath));
-			
+
 			selectedItem.icon = IconPickerUI.DrawIconField(selectedItem.icon, CopyCustomIcon); //'EditorGUILayout.TextField("Icon", group.icon);
 
 			/*			if (GUILayout.Button("Generate Assets"))
@@ -631,7 +631,7 @@ public class ModuleExporter : EditorWindow
 
 		//export
 		ExportedModule mod = new ExportedModule();
-		mod.id = System.Guid.NewGuid().ToString();
+		mod.id = System.Guid.NewGuid().ToString().ToUpper().ToUpper();
 		mod.name = moduleName;
 		mod.type = moduleType;
 		mod.controller = controllerClass;
@@ -826,7 +826,7 @@ public class ModuleExporter : EditorWindow
 	private void CreateCustomItem(ItemGroup group)
 	{
 		Item newItem = new Item();
-		newItem.id = System.Guid.NewGuid().ToString();
+		newItem.id = System.Guid.NewGuid().ToString().ToUpper();
 		newItem.name = "Custom Item";
 		newItem.prefab = null;
 		newItem.prefabPath = "";
@@ -851,7 +851,7 @@ public class ModuleExporter : EditorWindow
 			{
 				group.items.Add(new Item
 				{
-					id = System.Guid.NewGuid().ToString(),
+					id = System.Guid.NewGuid().ToString().ToUpper(),
 					name = prefab.name,
 					prefab = prefab,
 					prefabPath = assetPath,
@@ -1067,18 +1067,18 @@ public class CustomPropertiesPopup : EditorWindow
 				prop.type = allowedTypes[typeIndex];
 				x += typeFieldW;
 
-/*				Rect r4 = new Rect(x, y, valueLabelW, EditorGUIUtility.singleLineHeight);
-				EditorGUI.LabelField(r4, "Value");
-				x += valueLabelW;
-				Rect r5 = new Rect(x, y, valueFieldW, EditorGUIUtility.singleLineHeight);
-				string currentVal = prop.value != null ? prop.value.ToString() : "";
-				string newVal = EditorGUI.TextField(r5, currentVal);
-				if (newVal != currentVal)
-				{
-					prop.value = newVal;
-				}
-				x += valueFieldW;
-*/
+				/*				Rect r4 = new Rect(x, y, valueLabelW, EditorGUIUtility.singleLineHeight);
+								EditorGUI.LabelField(r4, "Value");
+								x += valueLabelW;
+								Rect r5 = new Rect(x, y, valueFieldW, EditorGUIUtility.singleLineHeight);
+								string currentVal = prop.value != null ? prop.value.ToString() : "";
+								string newVal = EditorGUI.TextField(r5, currentVal);
+								if (newVal != currentVal)
+								{
+									prop.value = newVal;
+								}
+								x += valueFieldW;
+				*/
 				if (prop.type == "object")
 				{
 					Rect r6 = new Rect(x, y, editorLabelW, EditorGUIUtility.singleLineHeight);
@@ -1202,14 +1202,14 @@ public class ComponentPropertiesPopup : EditorWindow
 					object defaultVal = entry.field.GetValue(entry.comp);
 					if (selectedItem.properties == null)
 						selectedItem.properties = new List<ModuleExporter.Property>();
-					
-					selectedItem.properties.Add( new ModuleExporter.Property
+
+					selectedItem.properties.Add(new ModuleExporter.Property
 					{
 						name = entry.field.Name,
 						type = ModuleExporter.TranslateType(entry.field.FieldType),
 						data = entry.comp.GetType().Name,
 					});
-					
+
 					PopulateAvailableFields();
 					Close();
 					break;
