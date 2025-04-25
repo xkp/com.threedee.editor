@@ -939,13 +939,20 @@ public class ModuleExporter : EditorWindow
 
 		if (preview != null)
 		{
-			byte[] pngData = preview.EncodeToPNG();
-			if (pngData != null)
+			try
 			{
-				string thumbPath = Path.Combine(thumbDirectory, item.name + ".png");
-				File.WriteAllBytes(thumbPath, pngData);
-				string relativeThumbPath = Path.Combine("Assets", "Thumbnails", item.name + ".png");
-				item.icon = relativeThumbPath;
+				byte[] pngData = preview.EncodeToPNG();
+				if (pngData != null)
+				{
+					string thumbPath = Path.Combine(thumbDirectory, item.name + ".png");
+					File.WriteAllBytes(thumbPath, pngData);
+					string relativeThumbPath = Path.Combine("Assets", "Thumbnails", item.name + ".png");
+					item.icon = relativeThumbPath;
+				}
+			}
+			catch
+			{
+				item.icon = string.Empty;
 			}
 		}
 	}
