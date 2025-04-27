@@ -61,6 +61,6 @@ public class EnvironmentLoader : EditorWindow
 	// This is where your logic will go
 	private void OnFoldersAccepted(string inputFolder, string outputFolder)
 	{
-		ThreedeeLoader.Load(inputFolder, ouputFolder);
+		ThreedeeLoader.Load(inputFolder, outputFolder);
 	}
 }
