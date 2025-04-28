@@ -178,6 +178,8 @@ public class ModuleExporter : EditorWindow
 			}
 		}
 
+
+		UpdateAssets();
 		Debug.Log("Loaded module from " + filePath);
 		Repaint();
 	}
@@ -349,16 +351,14 @@ public class ModuleExporter : EditorWindow
 					if (!string.IsNullOrEmpty(folderPath))
 					{
 						AddItemsFromFolder(group, folderPath);
+						UpdateAssets();
 					}
 				}
 				if (GUILayout.Button("Create Custom Item") && !string.IsNullOrEmpty(group.name))
 				{
 					CreateCustomItem(group);
 				}
-				if (GUILayout.Button("Generate Assets for Group"))
-				{
-					GenerateModelsForGroup(group);
-				}
+
 				int columns = Mathf.Max(1, Mathf.FloorToInt((position.width * 0.6f - 20f) / 70f));
 				int count = 0;
 				EditorGUILayout.BeginVertical();
@@ -622,6 +622,8 @@ public class ModuleExporter : EditorWindow
 
 	private void ExportModule()
 	{
+		UpdateAssets();
+
 		//AskForExportFolder();
 		string moduleFolder = GetModuleFolder();
 		Directory.CreateDirectory(moduleFolder);
@@ -648,8 +650,6 @@ public class ModuleExporter : EditorWindow
 
 			foreach (var item in group.items)
 			{
-				EnsureAssets(item);
-
 				ExportedItem ei = new ExportedItem();
 				ei.id = item.id;
 				ei.name = item.name;
@@ -718,25 +718,6 @@ public class ModuleExporter : EditorWindow
 		Debug.Log("Created zip file: " + zipFilePath);
 
 		EditorUtility.RevealInFinder(zipFilePath);
-	}
-
-	private void EnsureAssets(Item item)
-	{
-		if (string.IsNullOrEmpty(item.prefabPath))
-			return; //items not representing a prefab can not get its assets calculated
-
-		var modulePath = GetModuleFolder();
-		var thumbnailPath = Path.Combine(modulePath, "Assets/Thumbnails", item.icon);
-		if (!File.Exists(thumbnailPath))
-		{
-			GenerateThumbnail(item);
-		}
-
-		var hasPath = string.IsNullOrEmpty(item.modelPath);
-		if (!hasPath || !File.Exists(Path.Combine(modulePath, "Assets/Models", item.modelPath)))
-		{
-			GenerateModel(item);
-		}
 	}
 
 	private static void DirectoryCopy(string sourceDirName, string destDirName, bool copySubDirs)
@@ -864,6 +845,29 @@ public class ModuleExporter : EditorWindow
 		}
 	}
 
+	private void UpdateAssets()
+	{
+		var modulePath = GetModuleFolder();
+		foreach (var group in itemGroups)
+		{
+			foreach (var item in group.items)
+			{
+				if (item.prefab != null)
+				{
+					if (string.IsNullOrEmpty(item.icon) || !File.Exists(Path.Combine(modulePath, item.icon)))
+					{
+						GenerateThumbnail(item);
+					}
+
+					if (string.IsNullOrEmpty(item.modelPath) || !File.Exists(Path.Combine(modulePath, item.modelPath)))
+					{
+						GenerateModel(item);
+					}
+				}
+			}
+		}
+	}
+
 	private void GenerateModelsForGroup(ItemGroup group)
 	{
 		foreach (var item in group.items)
@@ -892,7 +896,7 @@ public class ModuleExporter : EditorWindow
 				return;
 			}
 			SaveMeshAsOBJ(mesh, modelPath, item.exportTranslation, item.exportRotation, item.exportScale);
-			item.modelPath = item.name + ".obj";
+			item.modelPath = Path.Combine("Assets", "Models", item.name + ".obj");
 		}
 	}
 
@@ -989,7 +993,14 @@ public class ModuleExporter : EditorWindow
 
 	private Mesh ExtractMesh(Renderer renderer)
 	{
-		return renderer is MeshRenderer meshRenderer ? meshRenderer.GetComponent<MeshFilter>()?.sharedMesh : null;
+		try
+		{
+			return renderer is MeshRenderer meshRenderer ? meshRenderer.GetComponent<MeshFilter>()?.sharedMesh : null;
+		}
+		catch
+		{
+			return null;
+		}
 	}
 
 	private Texture2D LoadTextureFromFile(string filePath)
