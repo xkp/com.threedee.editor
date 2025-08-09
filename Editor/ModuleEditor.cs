@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Text;
 using System.Reflection;
 using System.Linq;
-using Mono.Cecil;
 
 public class ModuleExporter : EditorWindow
 {
