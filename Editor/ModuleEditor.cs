@@ -6,9 +6,12 @@ using System.Collections.Generic;
 using System.Text;
 using System.Reflection;
 using System.Linq;
+using Mono.Cecil;
 
 public class ModuleExporter : EditorWindow
 {
+	private string moduleId = "";
+
 	private string moduleName = "";
 	// Instead of a string, we now have a MonoScript reference.
 	private string controllerClass = "";
@@ -24,6 +27,7 @@ public class ModuleExporter : EditorWindow
 	// Lists for Unity package files (copied into the module folder)
 	private List<string> unityPackages = new List<string>();       // full paths to copied files
 	private List<string> unityPackageNames = new List<string>();     // file names only
+	private List<string> assetsToExport = new List<string>();       // full paths to copied files
 
 	private Vector2 scrollPosition;
 	private Item selectedItem = null;
@@ -113,6 +117,7 @@ public class ModuleExporter : EditorWindow
 		ExportedModule mod = JsonUtility.FromJson<ExportedModule>(json);
 
 		// Populate module settings.
+		moduleId = mod.id;
 		moduleName = mod.name;
 		moduleType = mod.type;
 		controllerClass = mod.controller;
@@ -125,6 +130,15 @@ public class ModuleExporter : EditorWindow
 			foreach (var pkg in mod.packages)
 			{
 				unityPackageNames.Add(pkg);
+			}
+		}
+
+		assetsToExport.Clear();
+		if (mod.assetsToExport != null)
+		{
+			foreach (var asset in mod.assetsToExport)
+			{
+				assetsToExport.Add(asset);
 			}
 		}
 
@@ -222,6 +236,21 @@ public class ModuleExporter : EditorWindow
 		return "object";
 	}
 
+	private string GetUnityPath(string filePath)
+	{
+		string assetsPath = Application.dataPath; // absolute path to Assets folder
+		string fullPath = Path.GetFullPath(filePath).Replace("\\", "/");
+
+		if (!fullPath.StartsWith(assetsPath.Replace("\\", "/")))
+		{
+			return string.Empty;
+		}
+
+		// Convert absolute path to Unity relative path
+		return "Assets" + fullPath.Substring(assetsPath.Length);
+	}
+
+	private Vector2 _assetScroll; 
 	private void OnGUI()
 	{
 		EditorGUILayout.BeginVertical();
@@ -249,8 +278,24 @@ public class ModuleExporter : EditorWindow
 		EditorGUILayout.BeginHorizontal();
 
 		EditorGUILayout.BeginVertical();
-		if (GUILayout.Button("Select Assets to Export"))
+		
+		if (GUILayout.Button("Select Assets to Bundle"))
 		{
+			//AssetSelectorWindow.OpenWindow(assetsToExport);
+		}
+
+		if (assetsToExport.Count > 0)
+		{
+			_assetScroll = EditorGUILayout.BeginScrollView(_assetScroll, GUILayout.Height(150));
+			foreach (var path in assetsToExport)
+			{
+				EditorGUILayout.LabelField(path);
+			}
+			EditorGUILayout.EndScrollView();
+		}
+		else
+		{
+			EditorGUILayout.HelpBox("Asset bundling not yet implemented.", MessageType.Info);
 		}
 		EditorGUILayout.EndVertical();
 
@@ -266,18 +311,18 @@ public class ModuleExporter : EditorWindow
 				string packageOriginalPath = EditorUtility.OpenFilePanel("Select Unity Package", "", "unitypackage");
 				if (!string.IsNullOrEmpty(packageOriginalPath))
 				{
-					string moduleFolder = GetModuleFolder();
-					Directory.CreateDirectory(moduleFolder);
-					string packagesFolder = Path.Combine(moduleFolder, "Packages");
-					Directory.CreateDirectory(packagesFolder);
-
-					string destPath = Path.Combine(packagesFolder, Path.GetFileName(packageOriginalPath));
-					File.Copy(packageOriginalPath, destPath, true);
-
-					unityPackages.Add(destPath);
-					var packageName = Path.GetFileName(destPath);
-					if (!unityPackageNames.Contains(packageName))
-						unityPackageNames.Add(packageName);
+					string destPath = GetUnityPath(packageOriginalPath);
+					if (string.IsNullOrEmpty(destPath))
+					{
+						EditorUtility.DisplayDialog("Error", "Unity packages must be inside the asset folders.", "OK");
+					}
+					else
+					{
+						unityPackages.Add(destPath);
+						var packageName = Path.GetFileName(destPath);
+						if (!unityPackageNames.Contains(packageName))
+							unityPackageNames.Add(packageName);
+					}
 				}
 			}
 		}
@@ -633,11 +678,15 @@ public class ModuleExporter : EditorWindow
 
 		//export
 		ExportedModule mod = new ExportedModule();
-		mod.id = System.Guid.NewGuid().ToString().ToUpper().ToUpper();
+		if (string.IsNullOrEmpty(moduleId))
+			moduleId = System.Guid.NewGuid().ToString().ToUpper().ToUpper();
+
+		mod.id = moduleId;
 		mod.name = moduleName;
 		mod.type = moduleType;
 		mod.controller = controllerClass;
 		mod.packages = new List<string>(unityPackageNames);
+		mod.assetsToExport = new List<string>(assetsToExport);
 
 		mod.itemGroups = new List<ExportedGroup>();
 		foreach (var group in itemGroups)
@@ -696,6 +745,18 @@ public class ModuleExporter : EditorWindow
 
 			Debug.Log("Copied template files to " + destTemplateFolder);
 		}
+		else
+		{
+			string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+			var destFolder = Path.Combine(moduleFolder, "Packages");
+			Directory.CreateDirectory(destFolder);
+			foreach (var package in unityPackages)
+			{
+				var packagePath = Path.Combine(projectRoot, package);
+				var packageDest = Path.Combine(destFolder, Path.GetFileName(package));
+				File.Copy(packagePath, packageDest);
+			}
+		}
 
 		string jsonFilePath = loadedModuleFilePath;
 		if (string.IsNullOrEmpty(jsonFilePath))
@@ -709,6 +770,25 @@ public class ModuleExporter : EditorWindow
 
 		File.Copy(loadedModuleFilePath, Path.Combine(moduleFolder, Path.GetFileName(loadedModuleFilePath)), true);
 
+/*		if (moduleType != "Game")
+		{
+			var assetsFromGroups = new List<string>();
+			foreach (var group in itemGroups)
+			{
+				foreach (var item in group.items)
+				{
+					if (!string.IsNullOrEmpty(item.prefabPath))
+						assetsFromGroups.Add(item.prefabPath);
+				}
+			}
+
+			assetsFromGroups = assetsFromGroups.Distinct().ToList();
+			if (assetsFromGroups.Any())
+			{
+				BuildBundleFromPaths(assetsFromGroups, moduleId, Path.Combine(moduleFolder, moduleName));
+			}
+		}
+*/
 		string zipFilePath = Path.Combine(Path.GetDirectoryName(moduleFolder), moduleName + ".3dbg");
 		if (File.Exists(zipFilePath))
 		{
@@ -718,6 +798,53 @@ public class ModuleExporter : EditorWindow
 		Debug.Log("Created zip file: " + zipFilePath);
 
 		EditorUtility.RevealInFinder(zipFilePath);
+	}
+
+	public static void BuildBundleFromPaths(List<string> assetPaths, string bundleName, string outputDirectory)
+	{
+		if (assetPaths == null || assetPaths.Count == 0)
+		{
+			Debug.LogWarning("AssetBundleUtility: No asset paths provided.");
+			return;
+		}
+
+		// Filter out any folder paths
+		var filtered = new List<string>();
+		foreach (var path in assetPaths)
+		{
+			if (!AssetDatabase.IsValidFolder(path))
+				filtered.Add(path);
+		}
+
+		if (filtered.Count == 0)
+		{
+			Debug.LogWarning("AssetBundleUtility: No valid files found in provided paths.");
+			return;
+		}
+
+		// Resolve output directory
+		string fullOutput = outputDirectory;
+		if (!System.IO.Path.IsPathRooted(fullOutput))
+			fullOutput = System.IO.Path.Combine(Application.dataPath, "../", outputDirectory);
+		if (!System.IO.Directory.Exists(fullOutput))
+			System.IO.Directory.CreateDirectory(fullOutput);
+
+		// Setup build map
+		var buildMap = new AssetBundleBuild
+		{
+			assetBundleName = bundleName,
+			assetNames = filtered.ToArray()
+		};
+
+		// Execute build
+		BuildPipeline.BuildAssetBundles(
+			fullOutput,
+			new[] { buildMap },
+			BuildAssetBundleOptions.None,
+			EditorUserBuildSettings.activeBuildTarget
+		);
+
+		Debug.Log($"AssetBundleUtility: Built '{bundleName}' with {filtered.Count} assets at {fullOutput}");
 	}
 
 	private static void DirectoryCopy(string sourceDirName, string destDirName, bool copySubDirs)
@@ -765,6 +892,7 @@ public class ModuleExporter : EditorWindow
 		public string type;
 		public string controller;
 		public List<string> packages;
+		public List<string> assetsToExport;
 		public List<ExportedGroup> itemGroups;
 	}
 
