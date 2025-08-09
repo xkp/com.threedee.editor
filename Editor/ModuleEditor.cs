@@ -128,7 +128,8 @@ public class ModuleExporter : EditorWindow
 		{
 			foreach (var pkg in mod.packages)
 			{
-				unityPackageNames.Add(pkg);
+				unityPackages.Add(pkg);
+				unityPackageNames.Add(Path.GetFileName(pkg)); 
 			}
 		}
 
@@ -331,10 +332,6 @@ public class ModuleExporter : EditorWindow
 			GUILayout.Label(Path.GetFileName(unityPackages[i]));
 			if (GUILayout.Button("Remove", GUILayout.Width(80)))
 			{
-				if (File.Exists(unityPackages[i]))
-				{
-					File.Delete(unityPackages[i]);
-				}
 				unityPackages.RemoveAt(i);
 				unityPackageNames.RemoveAt(i);
 				i--;
@@ -684,7 +681,7 @@ public class ModuleExporter : EditorWindow
 		mod.name = moduleName;
 		mod.type = moduleType;
 		mod.controller = controllerClass;
-		mod.packages = new List<string>(unityPackageNames);
+		mod.packages = new List<string>(unityPackages);
 		mod.assetsToExport = new List<string>(assetsToExport);
 
 		mod.itemGroups = new List<ExportedGroup>();
@@ -752,8 +749,14 @@ public class ModuleExporter : EditorWindow
 			foreach (var package in unityPackages)
 			{
 				var packagePath = Path.Combine(projectRoot, package);
+				if (!File.Exists(packagePath))
+				{
+					Debug.Log($"Orphaned package: {package}");
+					continue;
+				}
+
 				var packageDest = Path.Combine(destFolder, Path.GetFileName(package));
-				File.Copy(packagePath, packageDest);
+				File.Copy(packagePath, packageDest, true);
 			}
 		}
 
