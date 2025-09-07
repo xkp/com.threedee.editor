@@ -772,7 +772,7 @@ public class ModuleExporter : EditorWindow
 
 		File.Copy(loadedModuleFilePath, Path.Combine(moduleFolder, Path.GetFileName(loadedModuleFilePath)), true);
 
-/*		if (moduleType != "Game")
+		if (moduleType != "Game")
 		{
 			var assetsFromGroups = new List<string>();
 			foreach (var group in itemGroups)
@@ -790,7 +790,7 @@ public class ModuleExporter : EditorWindow
 				BuildBundleFromPaths(assetsFromGroups, moduleId, Path.Combine(moduleFolder, moduleName));
 			}
 		}
-*/
+
 		string zipFilePath = Path.Combine(Path.GetDirectoryName(moduleFolder), moduleName + ".3dbg");
 		if (File.Exists(zipFilePath))
 		{
