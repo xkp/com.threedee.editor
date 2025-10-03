@@ -27,6 +27,8 @@ public class ModuleExporter : EditorWindow
 	private List<string> unityPackages = new List<string>();       // full paths to copied files
 	private List<string> unityPackageNames = new List<string>();     // file names only
 	private List<string> assetsToExport = new List<string>();       // full paths to copied files
+	private List<string> customEditors = new List<string>();       // full paths to copied files
+
 
 	private Vector2 scrollPosition;
 	private Item selectedItem = null;
@@ -39,6 +41,8 @@ public class ModuleExporter : EditorWindow
 
 	// NEW: A dictionary to track property foldout states (keyed by property key).
 	private Dictionary<string, bool> propertyFoldouts = new Dictionary<string, bool>();
+
+	private List<Property> moduleProperties = new List<Property>();
 
 	[System.Serializable]
 	public class Item
@@ -69,6 +73,7 @@ public class ModuleExporter : EditorWindow
 		public string name;
 		public string type;
 		public string data;
+		public string value;
 	}
 
 	[System.Serializable]
@@ -129,7 +134,25 @@ public class ModuleExporter : EditorWindow
 			foreach (var pkg in mod.packages)
 			{
 				unityPackages.Add(pkg);
-				unityPackageNames.Add(Path.GetFileName(pkg)); 
+				unityPackageNames.Add(Path.GetFileName(pkg));
+			}
+		}
+
+		customEditors.Clear();
+		if (mod.customEditors != null)
+		{
+			foreach (var editor in mod.customEditors)
+			{
+				customEditors.Add(editor);
+			}
+		}
+
+		moduleProperties.Clear();
+		if (mod.moduleProperties != null)
+		{
+			foreach (var property in mod.moduleProperties)
+			{
+				moduleProperties.Add(property);
 			}
 		}
 
@@ -250,7 +273,7 @@ public class ModuleExporter : EditorWindow
 		return "Assets" + fullPath.Substring(assetsPath.Length);
 	}
 
-	private Vector2 _assetScroll; 
+	private Vector2 _assetScroll;
 	private void OnGUI()
 	{
 		EditorGUILayout.BeginVertical();
@@ -277,27 +300,123 @@ public class ModuleExporter : EditorWindow
 		GUILayout.Label("GENERAL", EditorStyles.boldLabel);
 		EditorGUILayout.BeginHorizontal();
 
-		EditorGUILayout.BeginVertical();
-		
-		if (GUILayout.Button("Select Assets to Bundle"))
+		// === Module Properties Editor (replaces "Select Assets to UNBundle") ===
 		{
-			//AssetSelectorWindow.OpenWindow(assetsToExport);
-		}
+			// Constrain the whole editor to 50% of the window width
+			float sectionW = position.width * 0.5f;
 
-		if (assetsToExport.Count > 0)
-		{
-			_assetScroll = EditorGUILayout.BeginScrollView(_assetScroll, GUILayout.Height(150));
-			foreach (var path in assetsToExport)
+			EditorGUILayout.BeginVertical("box", GUILayout.Width(sectionW));
+
+			// Header row
+			EditorGUILayout.BeginHorizontal();
+			GUILayout.Label("Module Properties", EditorStyles.boldLabel);
+			GUILayout.FlexibleSpace();
+			if (GUILayout.Button("Add Property", GUILayout.Width(110)))
 			{
-				EditorGUILayout.LabelField(path);
+				moduleProperties ??= new List<Property>();
+				moduleProperties.Add(new Property
+				{
+					name = "NewProperty",
+					type = allowedTypes[0], // default "string"
+					data = "",
+					value = ""
+				});
 			}
-			EditorGUILayout.EndScrollView();
+			EditorGUILayout.EndHorizontal();
+
+			// Optional: header labels aligned to columns
+			{
+				// Reserve space for remove button (24) + small gap (6)
+				float reserved = 24f + 20f;
+				// Small internal padding/gaps between fields
+				float gap = 3f;
+
+				float usable = sectionW - reserved - (gap * 2f); // two gaps between 3 columns
+				float nameW = Mathf.Max(60f, usable * 0.40f);
+				float typeW = Mathf.Max(60f, usable * 0.20f);
+				float valueW = Mathf.Max(60f, usable * 0.40f);
+
+				EditorGUILayout.BeginHorizontal();
+				GUILayout.Label("Name", EditorStyles.miniBoldLabel, GUILayout.Width(nameW));
+				GUILayout.Label("Type", EditorStyles.miniBoldLabel, GUILayout.Width(typeW));
+				GUILayout.Label("Value", EditorStyles.miniBoldLabel, GUILayout.Width(valueW));
+				GUILayout.Space(reserved); // align with remove space
+				EditorGUILayout.EndHorizontal();
+
+				if (moduleProperties == null || moduleProperties.Count == 0)
+				{
+					EditorGUILayout.HelpBox("No module properties yet. Click 'Add Property' to create one.", MessageType.Info);
+				}
+				else
+				{
+					_assetScroll = EditorGUILayout.BeginScrollView(_assetScroll, GUILayout.Height(90));
+
+					for (int i = 0; i < moduleProperties.Count; i++)
+					{
+						var prop = moduleProperties[i];
+
+						EditorGUILayout.BeginHorizontal("helpbox");
+
+						// NAME (40%)
+						prop.name = EditorGUILayout.TextField(prop.name, GUILayout.Width(nameW));
+
+						GUILayout.Space(gap);
+
+						// TYPE (20%)
+						int typeIndex = System.Array.IndexOf(allowedTypes, prop.type);
+						if (typeIndex < 0) { typeIndex = 0; prop.type = allowedTypes[0]; }
+						typeIndex = EditorGUILayout.Popup(typeIndex, allowedTypes, GUILayout.Width(typeW));
+						prop.type = allowedTypes[typeIndex];
+
+						GUILayout.Space(gap);
+
+						// VALUE (40%) — type-specific
+						switch (prop.type)
+						{
+							case "object":
+								prop.data = EditorGUILayout.TextField(prop.data, GUILayout.Width(valueW));
+								break;
+
+							case "gameitem":
+								// Full-width button in the value column
+								if (GUILayout.Button(string.IsNullOrEmpty(prop.data) ? "Edit..." : prop.data, GUILayout.Width(valueW)))
+								{
+									prop.data = GameItemPropertyEditor.OpenWindow(prop.data);
+								}
+								break;
+
+							case "enum":
+								if (GUILayout.Button(string.IsNullOrEmpty(prop.data) ? "Edit..." : prop.data, GUILayout.Width(valueW)))
+								{
+									prop.data = EnumPropertyEditor.OpenWindow(prop.data, CopyCustomIcon);
+								}
+								break;
+
+							default:
+								prop.value = EditorGUILayout.TextField(prop.value, GUILayout.Width(valueW));
+								break;
+						}
+
+						// Remove button (fixed)
+						GUILayout.Space(6f);
+						if (GUILayout.Button("X", GUILayout.Width(24f)))
+						{
+							moduleProperties.RemoveAt(i);
+							i--;
+							EditorGUILayout.EndHorizontal();
+							continue;
+						}
+
+						EditorGUILayout.EndHorizontal();
+					}
+
+					EditorGUILayout.EndScrollView();
+				}
+			}
+
+			EditorGUILayout.EndVertical();
 		}
-		else
-		{
-			EditorGUILayout.HelpBox("Asset bundling not yet implemented.", MessageType.Info);
-		}
-		EditorGUILayout.EndVertical();
+		// === End Module Properties Editor ===
 
 		EditorGUILayout.BeginVertical();
 		if (GUILayout.Button("Add Unity Package"))
@@ -338,6 +457,43 @@ public class ModuleExporter : EditorWindow
 			}
 			EditorGUILayout.EndHorizontal();
 		}
+
+		if (GUILayout.Button("Add Custom Editor"))
+		{
+			if (string.IsNullOrEmpty(moduleName))
+			{
+				EditorUtility.DisplayDialog("Warning", "Please set the module name before adding a custom editor.", "OK");
+			}
+			else
+			{
+				string editorOriginalPath = EditorUtility.OpenFilePanel("Select Custom Editor", "", "zip");
+				if (!string.IsNullOrEmpty(editorOriginalPath))
+				{
+					string destPath = GetUnityPath(editorOriginalPath);
+					if (string.IsNullOrEmpty(destPath))
+					{
+						EditorUtility.DisplayDialog("Error", "Unity packages must be inside the asset folders.", "OK");
+					}
+					else
+					{
+						customEditors.Add(destPath);
+					}
+				}
+			}
+		}
+
+		for (int i = 0; i < customEditors.Count; i++)
+		{
+			EditorGUILayout.BeginHorizontal();
+			GUILayout.Label(Path.GetFileName(customEditors[i]));
+			if (GUILayout.Button("Remove", GUILayout.Width(80)))
+			{
+				customEditors.RemoveAt(i);
+				i--;
+			}
+			EditorGUILayout.EndHorizontal();
+		}
+
 		EditorGUILayout.EndVertical();
 		EditorGUILayout.EndHorizontal();
 
@@ -675,7 +831,7 @@ public class ModuleExporter : EditorWindow
 		//export
 		ExportedModule mod = new ExportedModule();
 		if (string.IsNullOrEmpty(moduleId))
-			moduleId = System.Guid.NewGuid().ToString().ToUpper().ToUpper();
+			moduleId = System.Guid.NewGuid().ToString().ToUpper();
 
 		mod.id = moduleId;
 		mod.name = moduleName;
@@ -683,6 +839,8 @@ public class ModuleExporter : EditorWindow
 		mod.controller = controllerClass;
 		mod.packages = new List<string>(unityPackages);
 		mod.assetsToExport = new List<string>(assetsToExport);
+		mod.customEditors = new List<string>(customEditors);
+		mod.moduleProperties = new List<Property>(moduleProperties);
 
 		mod.itemGroups = new List<ExportedGroup>();
 		foreach (var group in itemGroups)
@@ -760,6 +918,22 @@ public class ModuleExporter : EditorWindow
 			}
 		}
 
+		foreach (var editor in customEditors)
+		{
+			string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+			string editorZipFilePath = Path.Combine(projectRoot, editor);
+			if (File.Exists(editorZipFilePath))
+			{
+				var editorName = Path.GetFileNameWithoutExtension(editor);
+				var editorDest = Path.Combine(moduleFolder, "Editors", editorName);
+				Directory.CreateDirectory(editorDest);
+
+				System.IO.Compression.ZipFile.ExtractToDirectory(editorZipFilePath, editorDest);
+				//File.Copy(editorZipFilePath, Path.Combine(editorDest, Path.GetFileName(editor)), true);
+			}
+		}
+
+
 		string jsonFilePath = loadedModuleFilePath;
 		if (string.IsNullOrEmpty(jsonFilePath))
 		{
@@ -772,25 +946,25 @@ public class ModuleExporter : EditorWindow
 
 		File.Copy(loadedModuleFilePath, Path.Combine(moduleFolder, Path.GetFileName(loadedModuleFilePath)), true);
 
-		if (moduleType != "Game")
-		{
-			var assetsFromGroups = new List<string>();
-			foreach (var group in itemGroups)
-			{
-				foreach (var item in group.items)
+		/*		if (moduleType != "Game")
 				{
-					if (!string.IsNullOrEmpty(item.prefabPath))
-						assetsFromGroups.Add(item.prefabPath);
+					var assetsFromGroups = new List<string>();
+					foreach (var group in itemGroups)
+					{
+						foreach (var item in group.items)
+						{
+							if (!string.IsNullOrEmpty(item.prefabPath))
+								assetsFromGroups.Add(item.prefabPath);
+						}
+					}
+
+					assetsFromGroups = assetsFromGroups.Distinct().ToList();
+					if (assetsFromGroups.Any())
+					{
+						BuildBundleFromPaths(assetsFromGroups, moduleId, Path.Combine(moduleFolder, moduleName));
+					}
 				}
-			}
-
-			assetsFromGroups = assetsFromGroups.Distinct().ToList();
-			if (assetsFromGroups.Any())
-			{
-				BuildBundleFromPaths(assetsFromGroups, moduleId, Path.Combine(moduleFolder, moduleName));
-			}
-		}
-
+		*/
 		string zipFilePath = Path.Combine(Path.GetDirectoryName(moduleFolder), moduleName + ".3dbg");
 		if (File.Exists(zipFilePath))
 		{
@@ -894,8 +1068,10 @@ public class ModuleExporter : EditorWindow
 		public string type;
 		public string controller;
 		public List<string> packages;
+		public List<string> customEditors;
 		public List<string> assetsToExport;
 		public List<ExportedGroup> itemGroups;
+		public List<Property> moduleProperties;
 	}
 
 	[System.Serializable]
