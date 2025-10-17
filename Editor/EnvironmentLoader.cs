@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using UnityEditor;
+using System.Collections.Generic;
 
 public class EnvironmentLoader : EditorWindow
 {
@@ -58,9 +59,9 @@ public class EnvironmentLoader : EditorWindow
 		GUI.enabled = true;
 	}
 
-	// This is where your logic will go
 	private void OnFoldersAccepted(string inputFolder, string outputFolder)
 	{
-		ThreedeeLoader.Load(inputFolder, outputFolder);
+		var postProcess = new List<PostProcessNode>();
+		ThreedeeLoader.Load(inputFolder, outputFolder, postProcess);
 	}
 }

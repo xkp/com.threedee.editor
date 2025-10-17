@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEditor;
+using System.Collections.Generic;
 
 public class GameItemImporter : EditorWindow
 {
@@ -52,7 +53,8 @@ public class GameItemImporter : EditorWindow
 			Debug.Log("Importing items from: " + itemPath);
 			Debug.Log("Using module folder: " + moduleFolder);
 			// TODO: Implement your import logic here.
-			BigGameLoader.Load(itemPath, moduleFolder);
+			var postProcess = new List<PostProcessNode>();
+			BigGameLoader.Load(itemPath, moduleFolder, postProcess);
 		}
 	}
 }
