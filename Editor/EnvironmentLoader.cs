@@ -7,7 +7,7 @@ public class EnvironmentLoader : EditorWindow
 	private string inputFolderPath = "";
 	private string outputFolderPath = "";
 
-	[MenuItem("Tools/Environment Loader")]
+	[MenuItem("Tools/BG Debug/Environment Loader")]
 	public static void OpenWindow()
 	{
 		GetWindow<EnvironmentLoader>("Environment Loader");

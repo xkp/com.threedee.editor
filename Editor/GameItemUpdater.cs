@@ -6,7 +6,7 @@ public class GameItemUpdater : EditorWindow
 	private string itemPath = "";
 	private string moduleFolder = "";
 
-	[MenuItem("Tools/Game Item Updater")]
+	[MenuItem("Tools/BG Debug/Game Item Updater")]
 	public static void ShowWindow()
 	{
 		GetWindow<GameItemUpdater>("Game Item Updater");

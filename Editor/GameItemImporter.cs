@@ -7,7 +7,7 @@ public class GameItemImporter : EditorWindow
 	private string itemPath = "";
 	private string moduleFolder = "";
 
-	[MenuItem("Tools/Game Item Importer")]
+	[MenuItem("Tools/BG Debug/Game Item Importer")]
 	public static void ShowWindow()
 	{
 		GetWindow<GameItemImporter>("Game Item Importer");
