@@ -12,8 +12,9 @@ public class ModuleExporter : EditorWindow
 	private string moduleId = "";
 
 	private string moduleName = "";
-	// Instead of a string, we now have a MonoScript reference.
 	private string controllerClass = "";
+	private string author = "";
+	private string url = "";
 
 	// Module Type property.
 	private string moduleType = "Props";
@@ -27,8 +28,8 @@ public class ModuleExporter : EditorWindow
 	private List<string> unityPackages = new List<string>();       // full paths to copied files
 	private List<string> unityPackageNames = new List<string>();     // file names only
 	private List<string> assetsToExport = new List<string>();       // full paths to copied files
-	private List<string> customEditors = new List<string>();       // full paths to copied files
-
+	private List<string> customEditors = new List<string>();
+	private List<string> dependencies = new List<string>();
 
 	private Vector2 scrollPosition;
 	private Item selectedItem = null;
@@ -125,6 +126,8 @@ public class ModuleExporter : EditorWindow
 		moduleName = mod.name;
 		moduleType = mod.type;
 		controllerClass = mod.controller;
+		author = mod.author;
+		url = mod.url;
 
 		// Populate Unity package names.
 		unityPackageNames.Clear();
@@ -147,6 +150,15 @@ public class ModuleExporter : EditorWindow
 			}
 		}
 
+		dependencies.Clear();
+		if (mod.dependencies != null)
+		{
+			foreach (var dependency in mod.dependencies)
+			{
+				dependencies.Add(dependency);
+			}
+		}
+
 		moduleProperties.Clear();
 		if (mod.moduleProperties != null)
 		{
@@ -156,12 +168,12 @@ public class ModuleExporter : EditorWindow
 			}
 		}
 
-		assetsToExport.Clear();
-		if (mod.assetsToExport != null)
+		dependencies.Clear();
+		if (mod.dependencies != null)
 		{
-			foreach (var asset in mod.assetsToExport)
+			foreach (var dependency in mod.dependencies)
 			{
-				assetsToExport.Add(asset);
+				dependencies.Add(dependency);
 			}
 		}
 
@@ -282,6 +294,9 @@ public class ModuleExporter : EditorWindow
 
 		// --- Module Settings ---
 		GUILayout.Label("Module Export Settings", EditorStyles.boldLabel);
+		EditorGUILayout.BeginHorizontal();
+		float sectionW = position.width * 0.5f;
+		EditorGUILayout.BeginVertical("box", GUILayout.Width(sectionW));
 		moduleName = EditorGUILayout.TextField("Module Name", moduleName);
 		controllerClass = EditorGUILayout.TextField("Controller Class", controllerClass);
 
@@ -293,6 +308,13 @@ public class ModuleExporter : EditorWindow
 		}
 		moduleTypeIndex = EditorGUILayout.Popup("Module Type", moduleTypeIndex, allowedModuleTypes);
 		moduleType = allowedModuleTypes[moduleTypeIndex];
+		EditorGUILayout.EndVertical();
+		EditorGUILayout.BeginVertical();
+		author = EditorGUILayout.TextField("Author", author);
+		url = EditorGUILayout.TextField("URL", url);
+		EditorGUILayout.EndVertical();
+
+		EditorGUILayout.EndHorizontal();
 
 		EditorGUILayout.Space();
 
@@ -303,9 +325,9 @@ public class ModuleExporter : EditorWindow
 		// === Module Properties Editor (replaces "Select Assets to UNBundle") ===
 		{
 			// Constrain the whole editor to 50% of the window width
-			float sectionW = position.width * 0.5f;
+			float sectionWidth = position.width * 0.5f;
 
-			EditorGUILayout.BeginVertical("box", GUILayout.Width(sectionW));
+			EditorGUILayout.BeginVertical("box", GUILayout.Width(sectionWidth));
 
 			// Header row
 			EditorGUILayout.BeginHorizontal();
@@ -453,6 +475,23 @@ public class ModuleExporter : EditorWindow
 			{
 				unityPackages.RemoveAt(i);
 				unityPackageNames.RemoveAt(i);
+				i--;
+			}
+			EditorGUILayout.EndHorizontal();
+		}
+
+		if (GUILayout.Button("Add Dependency"))
+		{
+			dependencies.Add("");
+		}
+
+		for (int i = 0; i < dependencies.Count; i++)
+		{
+			EditorGUILayout.BeginHorizontal();
+			dependencies[i] = EditorGUILayout.TextField(dependencies[i]);
+			if (GUILayout.Button("Remove", GUILayout.Width(80)))
+			{
+				dependencies.RemoveAt(i);
 				i--;
 			}
 			EditorGUILayout.EndHorizontal();
@@ -678,7 +717,7 @@ public class ModuleExporter : EditorWindow
 
 			GUILayout.Label("ASSETS", EditorStyles.boldLabel);
 
-			selectedItem.prefabPath = EditorGUILayout.TextField("Prefab:", Path.GetFileNameWithoutExtension(selectedItem.prefabPath));
+			selectedItem.prefabPath = EditorGUILayout.TextField("Prefab:", selectedItem.prefabPath);
 
 			selectedItem.icon = IconPickerUI.DrawIconField(selectedItem.icon, CopyCustomIcon); //'EditorGUILayout.TextField("Icon", group.icon);
 
@@ -837,8 +876,10 @@ public class ModuleExporter : EditorWindow
 		mod.name = moduleName;
 		mod.type = moduleType;
 		mod.controller = controllerClass;
+		mod.author = author;
+		mod.url = url;
 		mod.packages = new List<string>(unityPackages);
-		mod.assetsToExport = new List<string>(assetsToExport);
+		mod.dependencies = new List<string>(dependencies);
 		mod.customEditors = new List<string>(customEditors);
 		mod.moduleProperties = new List<Property>(moduleProperties);
 
@@ -946,25 +987,24 @@ public class ModuleExporter : EditorWindow
 
 		File.Copy(loadedModuleFilePath, Path.Combine(moduleFolder, Path.GetFileName(loadedModuleFilePath)), true);
 
-		/*		if (moduleType != "Game")
-				{
-					var assetsFromGroups = new List<string>();
-					foreach (var group in itemGroups)
-					{
-						foreach (var item in group.items)
-						{
-							if (!string.IsNullOrEmpty(item.prefabPath))
-								assetsFromGroups.Add(item.prefabPath);
-						}
-					}
+		//export assets
+		var assetsFromGroups = new List<string>();
+		foreach (var group in itemGroups)
+		{
+			foreach (var item in group.items)
+			{
+				if (!string.IsNullOrEmpty(item.prefabPath))
+					assetsFromGroups.Add(item.prefabPath);
+			}
+		}
 
-					assetsFromGroups = assetsFromGroups.Distinct().ToList();
-					if (assetsFromGroups.Any())
-					{
-						BuildBundleFromPaths(assetsFromGroups, moduleId, Path.Combine(moduleFolder, moduleName));
-					}
-				}
-		*/
+		assetsFromGroups = assetsFromGroups.Distinct().ToList();
+		if (assetsFromGroups.Any())
+		{
+			BuildBundleFromPaths(assetsFromGroups, "AssetBundle", Path.Combine(moduleFolder, "Assets"));
+		}
+
+		//build zip file
 		string zipFilePath = Path.Combine(Path.GetDirectoryName(moduleFolder), moduleName + ".3dbg");
 		if (File.Exists(zipFilePath))
 		{
@@ -1067,9 +1107,12 @@ public class ModuleExporter : EditorWindow
 		public string name;
 		public string type;
 		public string controller;
+		public string author;
+		public string url;
+
 		public List<string> packages;
 		public List<string> customEditors;
-		public List<string> assetsToExport;
+		public List<string> dependencies;
 		public List<ExportedGroup> itemGroups;
 		public List<Property> moduleProperties;
 	}
