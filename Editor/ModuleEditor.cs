@@ -975,10 +975,10 @@ public class ModuleExporter : EditorWindow
 		}
 
 
-		string jsonFilePath = loadedModuleFilePath;
-		if (string.IsNullOrEmpty(jsonFilePath))
+		string jsonFilePath = Path.Combine(Application.dataPath, "module.bgm");
+		if (string.IsNullOrEmpty(loadedModuleFilePath))
 		{
-			jsonFilePath = loadedModuleFilePath = Path.Combine(Application.dataPath, "module.bgm");
+			loadedModuleFilePath = jsonFilePath;
 		}
 
 		string json = JsonUtility.ToJson(mod, true);
