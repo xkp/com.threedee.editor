@@ -975,17 +975,17 @@ public class ModuleExporter : EditorWindow
 		}
 
 
-		string jsonFilePath = Path.Combine(Application.dataPath, "module.bgm");
-		if (string.IsNullOrEmpty(loadedModuleFilePath))
+		string jsonFilePath = loadedModuleFilePath;
+		if (string.IsNullOrEmpty(jsonFilePath))
 		{
-			loadedModuleFilePath = jsonFilePath;
+			jsonFilePath = loadedModuleFilePath = Path.Combine(Application.dataPath, "module.bgm");
 		}
 
 		string json = JsonUtility.ToJson(mod, true);
 		File.WriteAllText(jsonFilePath, json);
 		Debug.Log("Exported module JSON to " + jsonFilePath);
 
-		File.Copy(loadedModuleFilePath, Path.Combine(moduleFolder, Path.GetFileName(loadedModuleFilePath)), true);
+		File.Copy(loadedModuleFilePath, Path.Combine(moduleFolder, "module.bgm"), true);
 
 		//export assets
 		var assetsFromGroups = new List<string>();
