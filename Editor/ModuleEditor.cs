@@ -1277,6 +1277,7 @@ public class ModuleExporter : EditorWindow
 
 	private void GenerateThumbnail(Item item)
 	{
+
 		if (item.prefab == null)
 			return;
 		string moduleFolder = GetModuleFolder();
@@ -1285,6 +1286,15 @@ public class ModuleExporter : EditorWindow
 		string thumbDirectory = Path.Combine(assetsDirectory, "Thumbnails");
 		Directory.CreateDirectory(thumbDirectory);
 		Texture2D preview = AssetPreview.GetAssetPreview(item.prefab);
+		if (preview == null)
+		{
+			while (AssetPreview.IsLoadingAssetPreview(item.prefab.GetInstanceID()))
+			{
+			}
+
+			preview = AssetPreview.GetAssetPreview(item.prefab);
+		}
+
 		if (preview == null)
 		{
 			preview = EditorGUIUtility.IconContent("DefaultAsset Icon").image as Texture2D;
