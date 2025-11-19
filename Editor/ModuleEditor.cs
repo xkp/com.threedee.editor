@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Reflection;
 using System.Linq;
+using System;
 
 public class ModuleExporter : EditorWindow
 {
@@ -571,7 +572,8 @@ public class ModuleExporter : EditorWindow
 				EditorGUI.indentLevel++;
 				group.name = EditorGUILayout.TextField("Name", group.name);
 
-				group.icon = IconPickerUI.DrawIconField(group.icon, (path) => {
+				group.icon = IconPickerUI.DrawIconField(group.icon, (path) =>
+				{
 					return CopyCustomIcon(path);
 				});
 
@@ -1197,6 +1199,7 @@ public class ModuleExporter : EditorWindow
 	private void UpdateAssets()
 	{
 		var modulePath = GetModuleFolder();
+		var texCache = new Dictionary<Texture2D, string>();
 		foreach (var group in itemGroups)
 		{
 			foreach (var item in group.items)
@@ -1210,12 +1213,70 @@ public class ModuleExporter : EditorWindow
 
 					if (string.IsNullOrEmpty(item.modelPath) || !File.Exists(Path.Combine(modulePath, item.modelPath)))
 					{
-						GenerateModel(item);
+						GenerateModel(item, ExportFormat.OBJ, true, texCache);
 					}
 				}
 			}
 		}
 	}
+
+	private void UpdateExportAssets()
+	{
+		var modulePath = GetModuleFolder();
+		var texCache = new Dictionary<Texture2D, string>();
+		foreach (var group in itemGroups)
+		{
+			foreach (var item in group.items)
+			{
+				if (item.prefab != null)
+				{
+					if (string.IsNullOrEmpty(item.icon) || !File.Exists(Path.Combine(modulePath, item.icon)))
+					{
+						GenerateExportThumbnail(item); 
+					}
+
+					if (string.IsNullOrEmpty(item.modelPath) || !File.Exists(Path.Combine(modulePath, item.modelPath)))
+					{
+						GenerateModel(item, ExportFormat.OBJ, true, texCache);
+					}
+				}
+			}
+		}
+	}
+
+	private void GenerateExportThumbnail(Item item)
+	{
+
+		if (item.prefab == null)
+			return;
+
+		string moduleFolder = GetModuleFolder();
+		string assetsDirectory = Path.Combine(moduleFolder, "Assets");
+		Directory.CreateDirectory(assetsDirectory);
+		string thumbDirectory = Path.Combine(assetsDirectory, "Thumbnails");
+		Directory.CreateDirectory(thumbDirectory);
+		Texture2D preview = ThumbnailGenerator.RenderPrefabThumbnail(item.prefab, 256, Color.clear);
+
+		if (preview != null)
+		{
+			try
+			{
+				byte[] pngData = preview.EncodeToPNG();
+				if (pngData != null)
+				{
+					string thumbPath = Path.Combine(thumbDirectory, item.name + ".png");
+					File.WriteAllBytes(thumbPath, pngData);
+					string relativeThumbPath = Path.Combine("Assets", "Thumbnails", item.name + ".png");
+					item.icon = relativeThumbPath;
+				}
+			}
+			catch
+			{
+				item.icon = string.Empty;
+			}
+		}
+	}
+
 
 	private void GenerateModelsForGroup(ItemGroup group)
 	{
@@ -1227,52 +1288,386 @@ public class ModuleExporter : EditorWindow
 		Debug.Log($"Models and thumbnails for group '{group.name}' extracted successfully!");
 	}
 
-	private void GenerateModel(Item item)
+	public enum ExportFormat { OBJ, GLB }
+
+	private void GenerateModel(Item item, ExportFormat format = ExportFormat.OBJ, bool includeMaterials = true, Dictionary<Texture2D, string> texCache = null)
 	{
 		string moduleFolder = GetModuleFolder();
 		string assetsDirectory = Path.Combine(moduleFolder, "Assets");
 		Directory.CreateDirectory(assetsDirectory);
 		string modelDirectory = Path.Combine(assetsDirectory, "Models");
 		Directory.CreateDirectory(modelDirectory);
-		string modelPath = Path.Combine(modelDirectory, item.name + ".obj");
 
-		if (item.prefab != null)
+		if (item.prefab == null)
 		{
-			Mesh mesh = GetLowestLODMesh(item.prefab);
-			if (mesh == null)
+			Debug.LogWarning($"No prefab for item: {item.name}");
+			return;
+		}
+
+		GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(item.prefab);
+		instance.hideFlags = HideFlags.DontSave;
+		instance.transform.position = item.exportTranslation;
+		instance.transform.rotation = Quaternion.Euler(item.exportRotation);
+		instance.transform.localScale = item.exportScale;
+
+		try
+		{
+			var merged = MergeAllMeshes(instance);
+			if (merged == null || merged.Mesh == null)
 			{
 				Debug.LogWarning($"No valid mesh found for item: {item.name}");
 				return;
 			}
-			SaveMeshAsOBJ(mesh, modelPath, item.exportTranslation, item.exportRotation, item.exportScale);
+
+			if (format == ExportFormat.GLB)
+			{
+				string glbPath = Path.Combine(modelDirectory, item.name + ".glb");
+				if (TryExportGLB(merged, glbPath, includeMaterials))
+				{
+					item.modelPath = Path.Combine("Assets", "Models", item.name + ".glb");
+					return;
+				}
+
+				Debug.LogWarning("GLB export unavailable (UniGLTF not detected). Falling back to OBJ.");
+			}
+
+			// OBJ (+ optional MTL)
+			string objPath = Path.Combine(modelDirectory, item.name + ".obj");
+			SaveMeshAsOBJ(merged, objPath, item.name, includeMaterials, texCache);
 			item.modelPath = Path.Combine("Assets", "Models", item.name + ".obj");
+		}
+		finally
+		{
+			if (Application.isEditor) UnityEngine.Object.DestroyImmediate(instance);
+			else UnityEngine.Object.Destroy(instance);
 		}
 	}
 
-	private void SaveMeshAsOBJ(Mesh mesh, string path, Vector3 translation, Vector3 rotation, Vector3 scale)
+	private class MergedMesh
 	{
-		Matrix4x4 transformation = Matrix4x4.TRS(translation, Quaternion.Euler(rotation), scale);
-		Vector3[] transformedVertices = new Vector3[mesh.vertices.Length];
-		for (int i = 0; i < mesh.vertices.Length; i++)
+		public Mesh Mesh;
+		public Material[] Materials;          // per-submesh
+		public List<Texture2D> MainTextures;  // aligned with Materials
+		public string[] MaterialNames;
+	}
+
+	private MergedMesh MergeAllMeshes(GameObject root)
+	{
+		var meshFilters = root.GetComponentsInChildren<MeshFilter>(true);
+		var skinned = root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+
+		var combineInstances = new List<CombineInstance>();
+		var materialList = new List<Material>();
+		var textureList = new List<Texture2D>();
+		var materialNameList = new List<string>();
+
+		void AddMesh(Mesh mesh, Transform t, Material[] mats)
 		{
-			transformedVertices[i] = transformation.MultiplyPoint3x4(mesh.vertices[i]);
+			if (mesh == null || mats == null || mats.Length == 0) return;
+
+			for (int si = 0; si < mesh.subMeshCount; si++)
+			{
+				combineInstances.Add(new CombineInstance { mesh = mesh, subMeshIndex = si, transform = t.localToWorldMatrix });
+				var mat = mats[Mathf.Min(si, mats.Length - 1)];
+				materialList.Add(mat);
+				textureList.Add(GetMainTexture(mat));
+				materialNameList.Add(SafeMaterialName(mat));
+			}
 		}
-		Vector3[] transformedNormals = new Vector3[mesh.normals.Length];
-		for (int i = 0; i < mesh.normals.Length; i++)
+
+		foreach (var mf in meshFilters)
 		{
-			transformedNormals[i] = transformation.MultiplyVector(mesh.normals[i]).normalized;
+			var mr = mf.GetComponent<MeshRenderer>();
+			if (mr == null || !mr.enabled) continue;
+			AddMesh(mf.sharedMesh, mf.transform, mr.sharedMaterials);
 		}
-		StringBuilder sb = new StringBuilder();
+
+		foreach (var smr in skinned)
+		{
+			if (smr == null || !smr.enabled) continue;
+			var baked = new Mesh();
+			smr.BakeMesh(baked, true);
+			AddMesh(baked, smr.transform, smr.sharedMaterials);
+		}
+
+		if (combineInstances.Count == 0) return null;
+
+		var merged = new Mesh { name = root.name + "_Merged" };
+		merged.CombineMeshes(combineInstances.ToArray(), /*mergeSubMeshes*/ false, /*useMatrices*/ true, /*hasLightmapData*/ false);
+		if (merged.normals == null || merged.normals.Length == 0) merged.RecalculateNormals();
+		if (merged.tangents == null || merged.tangents.Length == 0) merged.RecalculateTangents();
+		merged.RecalculateBounds();
+
+		return new MergedMesh
+		{
+			Mesh = merged,
+			Materials = materialList.ToArray(),
+			MainTextures = textureList,
+			MaterialNames = materialNameList.ToArray()
+		};
+	}
+
+	private static Texture2D GetMainTexture(Material m)
+	{
+		if (m == null) return null;
+		var props = new[] { "_BaseMap", "_MainTex" };
+		foreach (var p in props) if (m.HasProperty(p)) return m.GetTexture(p) as Texture2D;
+		return null;
+	}
+
+	private static string SafeMaterialName(Material m)
+	{
+		var n = (m != null && !string.IsNullOrEmpty(m.name)) ? m.name : "Material";
+		foreach (var c in Path.GetInvalidFileNameChars()) n = n.Replace(c, '_');
+		return n.Replace(' ', '_');
+	}
+
+	// ---------- OBJ EXPORT (with switch) ----------
+	private void SaveMeshAsOBJ(MergedMesh merged, string objPath, string baseName, bool includeMaterials, Dictionary<Texture2D, string> texCache)
+	{
+		var mesh = merged.Mesh;
+		var dir = Path.GetDirectoryName(objPath);
+		Directory.CreateDirectory(dir);
+
+		string objFileNameNoExt = Path.GetFileNameWithoutExtension(objPath);
+		string mtlPath = Path.Combine(dir, objFileNameNoExt + ".mtl");
+
+		var sb = new StringBuilder();
+		sb.AppendLine("# Exported by YourExporterClass (OBJ)");
+
+		if (includeMaterials)
+			sb.AppendLine($"mtllib {objFileNameNoExt}.mtl");
+
 		sb.AppendLine($"o {mesh.name}");
-		foreach (Vector3 v in transformedVertices)
-			sb.AppendLine($"v {v.x} {v.y} {v.z}");
-		foreach (Vector3 n in transformedNormals)
-			sb.AppendLine($"vn {n.x} {n.y} {n.z}");
-		foreach (Vector2 uv in mesh.uv)
-			sb.AppendLine($"vt {uv.x} {uv.y}");
-		for (int i = 0; i < mesh.triangles.Length; i += 3)
-			sb.AppendLine($"f {mesh.triangles[i] + 1} {mesh.triangles[i + 1] + 1} {mesh.triangles[i + 2] + 1}");
-		File.WriteAllText(path, sb.ToString());
+
+		// v
+		foreach (var v in mesh.vertices) sb.AppendLine($"v {v.x} {v.y} {v.z}");
+
+		// vt
+		var uvs = new List<Vector2>();
+		mesh.GetUVs(0, uvs);
+		if (uvs == null || uvs.Count != mesh.vertexCount)
+			uvs = Enumerable.Repeat(Vector2.zero, mesh.vertexCount).ToList();
+		foreach (var uv in uvs) sb.AppendLine($"vt {uv.x} {uv.y}");
+
+		// vn
+		var normals = mesh.normals;
+		if (normals == null || normals.Length != mesh.vertexCount)
+		{
+			mesh.RecalculateNormals();
+			normals = mesh.normals;
+		}
+		foreach (var n in normals) sb.AppendLine($"vn {n.x} {n.y} {n.z}");
+
+		// Faces
+		int vertexOffset = 1;
+		for (int sm = 0; sm < mesh.subMeshCount; sm++)
+		{
+			if (includeMaterials)
+			{
+				string mName = merged.MaterialNames[Mathf.Min(sm, merged.MaterialNames.Length - 1)];
+				sb.AppendLine($"usemtl {mName}");
+			}
+
+			var tris = mesh.GetTriangles(sm);
+			for (int i = 0; i < tris.Length; i += 3)
+			{
+				int a = tris[i] + vertexOffset;
+				int b = tris[i + 1] + vertexOffset;
+				int c = tris[i + 2] + vertexOffset;
+				sb.AppendLine($"f {a}/{a}/{a} {b}/{b}/{b} {c}/{c}/{c}");
+			}
+		}
+
+		File.WriteAllText(objPath, sb.ToString(), Encoding.UTF8);
+
+		// MTL (only if requested)
+		if (includeMaterials)
+		{
+			var mtl = new StringBuilder();
+			mtl.AppendLine("# Exported by Plyground");
+			for (int i = 0; i < merged.Materials.Length; i++)
+			{
+				var mat = merged.Materials[i];
+				var matName = merged.MaterialNames[i];
+				mtl.AppendLine($"newmtl {matName}");
+
+				Color col = Color.white;
+				if (mat != null && mat.HasProperty("_BaseColor")) col = mat.GetColor("_BaseColor");
+				else if (mat != null && mat.HasProperty("_Color")) col = mat.GetColor("_Color");
+				mtl.AppendLine($"Kd {col.r} {col.g} {col.b}");
+				mtl.AppendLine("Ks 0 0 0");
+				mtl.AppendLine("Ns 0");
+				mtl.AppendLine("d 1");
+
+				var tex = merged.MainTextures[i];
+				if (tex != null)
+				{
+					string texFile = $"{objFileNameNoExt}_{matName}.png";
+					if (texCache != null && texCache.TryGetValue(tex, out string cached))
+					{
+						texFile = cached;
+					}
+					else
+					{
+						texCache[tex] = texFile;
+						string texPath = Path.Combine(dir, texFile);
+						WriteTextureToPng(tex, texPath);
+					}
+
+					mtl.AppendLine($"map_Kd {texFile}");
+				}
+				mtl.AppendLine();
+			}
+			File.WriteAllText(mtlPath, mtl.ToString(), Encoding.UTF8);
+		}
+
+		Debug.Log($"OBJ exported: {objPath} {(includeMaterials ? "(with materials)" : "(geometry only)")}");
+	}
+
+	private static void WriteTextureToPng(Texture2D source, string outPath)
+	{
+		Texture2D readable = source;
+		bool createdTemp = false;
+		try
+		{
+			if (!source.isReadable)
+			{
+				var rt = RenderTexture.GetTemporary(source.width, source.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+				Graphics.Blit(source, rt);
+				var prev = RenderTexture.active;
+				RenderTexture.active = rt;
+
+				readable = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false, true);
+				readable.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0, false);
+				readable.Apply();
+
+				RenderTexture.active = prev;
+				RenderTexture.ReleaseTemporary(rt);
+				createdTemp = true;
+			}
+			var bytes = readable.EncodeToPNG();
+			File.WriteAllBytes(outPath, bytes);
+		}
+		finally
+		{
+			if (createdTemp && readable != null) UnityEngine.Object.DestroyImmediate(readable);
+		}
+	}
+
+	// ---------- GLB EXPORT (with switch) ----------
+	private bool TryExportGLB(MergedMesh merged, string glbPath, bool includeMaterials)
+	{
+		// Build a transient GO for export
+		var go = new GameObject("GLB_Export_Temp");
+		try
+		{
+			var mf = go.AddComponent<MeshFilter>();
+			Mesh meshForExport = merged.Mesh;
+
+			// If we don't want materials, collapse to a single submesh so the exporter
+			// doesn't emit multiple primitives that might each get a default material.
+			Material[] matsForExport = includeMaterials ? merged.Materials : Array.Empty<Material>();
+			if (!includeMaterials && meshForExport.subMeshCount > 1)
+			{
+				meshForExport = new Mesh { name = merged.Mesh.name + "_SingleSub" };
+				meshForExport.CombineMeshes(new[]
+				{
+				new CombineInstance{ mesh = merged.Mesh, transform = Matrix4x4.identity, subMeshIndex = 0 }
+			}, /*mergeSubMeshes*/ true, /*useMatrices*/ false, /*hasLightmap*/ false);
+				// The above with subMeshIndex=0 merges all only if original had 1 submesh.
+				// To force merge-all, do a manual rebuild:
+				meshForExport = ForceCombineAllSubmeshes(merged.Mesh);
+			}
+
+			mf.sharedMesh = meshForExport;
+
+			var mr = go.AddComponent<MeshRenderer>();
+			mr.sharedMaterials = matsForExport;
+
+			// UniGLTF reflection
+			var gltfExporterType = Type.GetType("UniGLTF.GltfExporter, UniGLTF");
+			var exportSettingsType = Type.GetType("UniGLTF.ExportSettings, UniGLTF");
+			var glbExportType = Type.GetType("UniGLTF.GlbFile, UniGLTF");
+
+			if (gltfExporterType == null || exportSettingsType == null || glbExportType == null)
+				return false;
+
+			var exportSettings = Activator.CreateInstance(exportSettingsType);
+
+			// Best-effort: if ExportSettings has a flag to disable materials, flip it.
+			// Different UniGLTF versions vary; try a few property names.
+			var maybeMaterialFlag = exportSettingsType.GetProperty("ExportMaterials")
+									?? exportSettingsType.GetProperty("exportMaterials")
+									?? exportSettingsType.GetProperty("Materials");
+			if (maybeMaterialFlag != null && maybeMaterialFlag.PropertyType == typeof(bool))
+			{
+				maybeMaterialFlag.SetValue(exportSettings, includeMaterials);
+			}
+
+			var exporter = Activator.CreateInstance(gltfExporterType, new object[] { exportSettings });
+
+			var prepare = gltfExporterType.GetMethod("Prepare", new[] { typeof(GameObject) });
+			prepare.Invoke(exporter, new object[] { go });
+
+			byte[] bytes = null;
+			var exportAsGlbBytes = gltfExporterType.GetMethod("ExportAsGlbBytes", Type.EmptyTypes);
+			if (exportAsGlbBytes != null)
+			{
+				bytes = (byte[])exportAsGlbBytes.Invoke(exporter, null);
+			}
+			else
+			{
+				var exportMethod = gltfExporterType.GetMethod("Export", Type.EmptyTypes);
+				exportMethod?.Invoke(exporter, null);
+
+				var fromExporter = glbExportType.GetMethod("FromGltfExporter", new[] { gltfExporterType });
+				var glbObj = fromExporter?.Invoke(null, new[] { exporter });
+				var toBytes = glbExportType.GetMethod("ToBytes", Type.EmptyTypes);
+				bytes = (byte[])toBytes?.Invoke(glbObj, null);
+			}
+
+			if (bytes == null || bytes.Length == 0)
+			{
+				Debug.LogWarning("UniGLTF export produced no data.");
+				return false;
+			}
+
+			Directory.CreateDirectory(Path.GetDirectoryName(glbPath));
+			File.WriteAllBytes(glbPath, bytes);
+			Debug.Log($"GLB exported: {glbPath} {(includeMaterials ? "(with materials)" : "(geometry-only / minimal material)")}");
+
+			return true;
+		}
+		catch (Exception ex)
+		{
+			Debug.LogWarning($"GLB export failed: {ex.Message}");
+			return false;
+		}
+		finally
+		{
+			UnityEngine.Object.DestroyImmediate(go);
+		}
+	}
+
+	// Force-merge all submeshes into one (keeps vertex data/uvs/normals)
+	private Mesh ForceCombineAllSubmeshes(Mesh src)
+	{
+		var dst = new Mesh { name = src.name + "_MergedOneSub" };
+		dst.vertices = src.vertices;
+		dst.normals = (src.normals != null && src.normals.Length == src.vertexCount) ? src.normals : null;
+		if (dst.normals == null) { dst.RecalculateNormals(); }
+		var uvs = new List<Vector2>();
+		src.GetUVs(0, uvs);
+		if (uvs != null && uvs.Count == src.vertexCount) dst.SetUVs(0, uvs);
+
+		// Concatenate all triangles into a single submesh
+		var all = new List<int>();
+		for (int i = 0; i < src.subMeshCount; i++) all.AddRange(src.GetTriangles(i));
+		dst.subMeshCount = 1;
+		dst.SetTriangles(all, 0);
+		dst.RecalculateBounds();
+		return dst;
 	}
 
 	private void GenerateThumbnail(Item item)
@@ -1288,11 +1683,25 @@ public class ModuleExporter : EditorWindow
 		Texture2D preview = AssetPreview.GetAssetPreview(item.prefab);
 		if (preview == null)
 		{
+			double start = EditorApplication.timeSinceStartup;
+			float timeoutSeconds = 15f;
+			// Poll without blocking editor message pump
 			while (AssetPreview.IsLoadingAssetPreview(item.prefab.GetInstanceID()))
 			{
+				// Try to get the texture each tick
+				preview = AssetPreview.GetAssetPreview(item.prefab);
+				if (preview != null) break;
+
+				// Give the editor a breath so jobs advance
+				System.Threading.Thread.Sleep(15);
+
+				// Bail on timeout to avoid infinite loops
+				if (EditorApplication.timeSinceStartup - start > timeoutSeconds)
+					break;
 			}
 
-			preview = AssetPreview.GetAssetPreview(item.prefab);
+			// Fallback: a tiny icon so you at least have something
+			preview ??= AssetPreview.GetMiniThumbnail(item.prefab);
 		}
 
 		if (preview == null)
