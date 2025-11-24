@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEditor;
 using UnityEditorInternal; // for ReorderableList
 using System.IO;
@@ -243,7 +243,7 @@ public class ModuleExporter : EditorWindow
 	}
 
 	/// <summary>
-	/// Returns the module folder. If the chosen exportPath�s name equals moduleName, we use exportPath directly;
+	/// Returns the module folder. If the chosen exportPath’s name equals moduleName, we use exportPath directly;
 	/// otherwise we create a subfolder.
 	/// </summary>
 	private string GetModuleFolder()
@@ -393,7 +393,7 @@ public class ModuleExporter : EditorWindow
 
 						GUILayout.Space(gap);
 
-						// VALUE (40%) � type-specific
+						// VALUE (40%) — type-specific
 						switch (prop.type)
 						{
 							case "object":
@@ -860,7 +860,7 @@ public class ModuleExporter : EditorWindow
 
 	private void ExportModule()
 	{
-		UpdateAssets();
+		UpdateExportAssets();
 
 		//AskForExportFolder();
 		string moduleFolder = GetModuleFolder();
@@ -997,6 +997,24 @@ public class ModuleExporter : EditorWindow
 			{
 				if (!string.IsNullOrEmpty(item.prefabPath))
 					assetsFromGroups.Add(item.prefabPath);
+
+				//make sure all meshes are read/write
+				if (item.prefab != null)
+				{
+					var instance = item.prefab;
+					HashSet<Mesh> processed = new HashSet<Mesh>();
+					foreach (var mf in instance.GetComponentsInChildren<MeshFilter>(true))
+					{
+						if (mf.sharedMesh)
+							MakeMeshRW(mf.sharedMesh, processed);
+					}
+
+					foreach (var smr in instance.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+					{
+						if (smr.sharedMesh)
+							MakeMeshRW(smr.sharedMesh, processed);
+					}
+				}
 			}
 		}
 
@@ -1018,6 +1036,35 @@ public class ModuleExporter : EditorWindow
 		EditorUtility.RevealInFinder(zipFilePath);
 	}
 
+	private static void MakeMeshRW(Mesh mesh, HashSet<Mesh> processed)
+	{
+		if (processed.Contains(mesh))
+			return;
+
+		string path = AssetDatabase.GetAssetPath(mesh);
+
+		if (string.IsNullOrEmpty(path))
+		{
+			Debug.LogWarning($"Mesh '{mesh.name}' is not an asset (maybe generated at runtime?). Skipped.");
+			return;
+		}
+
+		var importer = AssetImporter.GetAtPath(path) as ModelImporter;
+		if (importer == null)
+		{
+			Debug.LogWarning($"Mesh '{mesh.name}' is not imported via ModelImporter. Skipped. Path: {path}");
+			return;
+		}
+
+		if (!importer.isReadable)
+		{
+			importer.isReadable = true;
+			importer.SaveAndReimport();
+			Debug.Log($"Set Read/Write Enabled ON → {mesh.name}");
+		}
+
+		processed.Add(mesh);
+	}
 	public static void BuildBundleFromPaths(List<string> assetPaths, string bundleName, string outputDirectory)
 	{
 		if (assetPaths == null || assetPaths.Count == 0)
@@ -1055,14 +1102,17 @@ public class ModuleExporter : EditorWindow
 		};
 
 		// Execute build
-		BuildPipeline.BuildAssetBundles(
+		var manifest = BuildPipeline.BuildAssetBundles(
 			fullOutput,
 			new[] { buildMap },
 			BuildAssetBundleOptions.None,
 			EditorUserBuildSettings.activeBuildTarget
 		);
 
-		Debug.Log($"AssetBundleUtility: Built '{bundleName}' with {filtered.Count} assets at {fullOutput}");
+		if (manifest == null)
+			Debug.LogError($"AssetBundleUtility: Failted Building'{bundleName}' with {filtered.Count} assets at {fullOutput}");
+		else
+			Debug.Log($"AssetBundleUtility: Built '{bundleName}' with {filtered.Count} assets at {fullOutput}");
 	}
 
 	private static void DirectoryCopy(string sourceDirName, string destDirName, bool copySubDirs)
@@ -1232,7 +1282,7 @@ public class ModuleExporter : EditorWindow
 				{
 					if (string.IsNullOrEmpty(item.icon) || !File.Exists(Path.Combine(modulePath, item.icon)))
 					{
-						GenerateExportThumbnail(item); 
+						GenerateExportThumbnail(item);
 					}
 
 					if (string.IsNullOrEmpty(item.modelPath) || !File.Exists(Path.Combine(modulePath, item.modelPath)))
