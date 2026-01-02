@@ -96,6 +96,7 @@ public class GameImporter : EditorWindow
 	{
 		var postProcess = new List<PostProcessNode>();
 		ThreedeeLoader.Load(inputFolder, outputFolder, postProcess);
-		BigGameLoader.Load(itemPath, moduleFolder, postProcess);
+		//TODO: do the async workif neccesary, this utility is not much in use anymore
+		//BigGameLoader.Load(itemPath, moduleFolder, postProcess);
 	}
 }
