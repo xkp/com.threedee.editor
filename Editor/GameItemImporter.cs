@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 public class GameItemImporter : EditorWindow
 {
 	private string itemPath = "";
+	private string buildFilePath = "";
 	private string moduleFolder = "";
 	private string assetFolder = "";
 
@@ -52,6 +53,7 @@ public class GameItemImporter : EditorWindow
 		GUILayout.Label("Game Item Importer", EditorStyles.boldLabel);
 
 		DrawPathRow("Item Path", ref itemPath);
+		DrawPathRow("Build File Path", ref buildFilePath);
 		DrawPathRow("Module Folder", ref moduleFolder);
 		DrawPathRow("Asset Folder", ref assetFolder);
 
@@ -133,7 +135,7 @@ public class GameItemImporter : EditorWindow
 		var postProcess = new List<PostProcessNode>();
 
 		// Fire-and-track (don’t await in OnGUI)
-		_runTask = RunImportAsync(itemPath, moduleFolder, assetFolder, postProcess, _cts.Token);
+		_runTask = RunImportAsync(itemPath, buildFilePath, moduleFolder, assetFolder, postProcess, _cts.Token);
 
 		// Optional: immediately repaint
 		Repaint();
@@ -148,7 +150,7 @@ public class GameItemImporter : EditorWindow
 		}
 	}
 
-	private async Task RunImportAsync(string itemPath, string moduleFolder, string assetPath, List<PostProcessNode> postProcess, CancellationToken ct)
+	private async Task RunImportAsync(string itemPath, string buildFilePath, string moduleFolder, string assetPath, List<PostProcessNode> postProcess, CancellationToken ct)
 	{
 		try
 		{
@@ -156,7 +158,7 @@ public class GameItemImporter : EditorWindow
 			// Preferred signature:
 			//   Task BigGameLoader.Load(string itemPath, string moduleFolder, List<PostProcessNode> postProcess, CancellationToken ct)
 
-			await BigGameLoader.Load(itemPath, moduleFolder, assetPath, postProcess /*, ct*/);
+			await BigGameLoader.Load(itemPath, buildFilePath, moduleFolder, assetPath, postProcess /*, ct*/);
 
 			_state = RunState.Done;
 			Append("Import complete.");
