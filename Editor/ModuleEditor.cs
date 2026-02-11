@@ -1282,7 +1282,7 @@ public class ModuleExporter : EditorWindow
 				{
 					if (string.IsNullOrEmpty(item.icon) || !File.Exists(Path.Combine(modulePath, item.icon)))
 					{
-						GenerateExportThumbnail(item);
+						GenerateThumbnail(item);
 					}
 
 					if (string.IsNullOrEmpty(item.modelPath) || !File.Exists(Path.Combine(modulePath, item.modelPath)))
@@ -1734,7 +1734,7 @@ public class ModuleExporter : EditorWindow
 		if (preview == null)
 		{
 			double start = EditorApplication.timeSinceStartup;
-			float timeoutSeconds = 15f;
+			float timeoutSeconds = 2f;
 			// Poll without blocking editor message pump
 			while (AssetPreview.IsLoadingAssetPreview(item.prefab.GetInstanceID()))
 			{
@@ -1751,12 +1751,12 @@ public class ModuleExporter : EditorWindow
 			}
 
 			// Fallback: a tiny icon so you at least have something
-			preview ??= AssetPreview.GetMiniThumbnail(item.prefab);
+			//preview ??= AssetPreview.GetMiniThumbnail(item.prefab);
 		}
 
 		if (preview == null)
 		{
-			preview = EditorGUIUtility.IconContent("DefaultAsset Icon").image as Texture2D;
+			//preview = EditorGUIUtility.IconContent("DefaultAsset Icon").image as Texture2D;
 		}
 
 		if (preview != null)
@@ -1776,6 +1776,10 @@ public class ModuleExporter : EditorWindow
 			{
 				item.icon = string.Empty;
 			}
+		}
+		else
+		{
+			GenerateExportThumbnail(item);
 		}
 	}
 
